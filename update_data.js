@@ -26,31 +26,57 @@ async function query(sql) {
 
 function fmtLabel(month) {
   const [y, m] = month.split('-');
-  return `${y.slice(2)}년 ${parseInt(m)}월`;
+  return `${y.slice(2)}년${m}월`;
 }
 
 // ─── QUERIES ───
 
 async function fetchFunnelData() {
   console.log('  [1/7] FUNNEL_DATA 조회 중...');
+  // card_application (view): submitted/approved/signup (전체 신청 포함)
+  // card_application_funnel (table): limit~first_spend (승인+가입 완료 건만)
   const rows = await query(`
+    WITH top_funnel AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', card_application_submitted_at) AS month,
+        COUNT(*) AS submitted,
+        COUNTIF(card_application_review_status = '승인') AS approved,
+        COUNTIF(funnel = '회원가입') AS signup
+      FROM \`gowid-prd.mart_limit_application.card_application\`
+      WHERE card_application_submitted_at >= '2025-01-01'
+      GROUP BY 1
+    ),
+    bottom_funnel AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', card_application_submitted_at) AS month,
+        COUNTIF(first_limit_start_init IS NOT NULL) AS limit_start,
+        COUNTIF(first_limit_progress_after_init IS NOT NULL) AS limit_progress,
+        COUNTIF(first_limit_result_at IS NOT NULL) AS limit_result_any,
+        COUNTIF(first_limit_result_amount > 0) AS limit_nonzero,
+        COUNTIF(first_limit_result_at IS NOT NULL AND first_limit_result_amount = 0) AS limit_zero,
+        COUNTIF(first_card_info_created_at IS NOT NULL) AS card_info,
+        COUNTIF(first_card_applied_at IS NOT NULL) AS card_applied,
+        COUNTIF(first_card_issued_at IS NOT NULL) AS card_issued,
+        COUNTIF(first_spend_at IS NOT NULL) AS first_spend
+      FROM \`gowid-prd.mart_limit_application.card_application_funnel\`
+      WHERE card_application_submitted_at >= '2025-01-01'
+      GROUP BY 1
+    )
     SELECT
-      FORMAT_DATE('%Y-%m', card_application_submitted_at) AS month,
-      COUNT(*) AS submitted,
-      COUNTIF(card_application_approved_at IS NOT NULL) AS approved,
-      COUNTIF(signup_at IS NOT NULL) AS signup,
-      COUNTIF(first_limit_start_init IS NOT NULL) AS limit_start,
-      COUNTIF(first_limit_progress_after_init IS NOT NULL) AS limit_progress,
-      COUNTIF(first_limit_result_at IS NOT NULL) AS limit_result_any,
-      COUNTIF(first_limit_result_amount > 0) AS limit_nonzero,
-      COUNTIF(first_limit_result_at IS NOT NULL AND first_limit_result_amount = 0) AS limit_zero,
-      COUNTIF(first_card_info_created_at IS NOT NULL) AS card_info,
-      COUNTIF(first_card_applied_at IS NOT NULL) AS card_applied,
-      COUNTIF(first_card_issued_at IS NOT NULL) AS card_issued,
-      COUNTIF(first_spend_at IS NOT NULL) AS first_spend
-    FROM \`gowid-prd.mart_limit_application.card_application_funnel\`
-    WHERE card_application_submitted_at >= '2025-01-01'
-    GROUP BY 1 ORDER BY 1
+      t.month,
+      t.submitted, t.approved, t.signup,
+      COALESCE(b.limit_start, 0) AS limit_start,
+      COALESCE(b.limit_progress, 0) AS limit_progress,
+      COALESCE(b.limit_result_any, 0) AS limit_result_any,
+      COALESCE(b.limit_nonzero, 0) AS limit_nonzero,
+      COALESCE(b.limit_zero, 0) AS limit_zero,
+      COALESCE(b.card_info, 0) AS card_info,
+      COALESCE(b.card_applied, 0) AS card_applied,
+      COALESCE(b.card_issued, 0) AS card_issued,
+      COALESCE(b.first_spend, 0) AS first_spend
+    FROM top_funnel t
+    LEFT JOIN bottom_funnel b ON t.month = b.month
+    ORDER BY t.month
   `);
   return rows.map(r => ({
     month: r.month,
@@ -133,32 +159,64 @@ async function fetchUsageData() {
 
 async function fetchIndustryData() {
   console.log('  [3/7] INDUSTRY_DATA 조회 중...');
+  // business_items_innoforest: 혁신의숲 업종 분류 (comma-separated)
+  // 패션 + 뷰티/화장품 → 패션/뷰티/화장품 으로 병합
+  // 첫결제/M1/M2/M3 모든 메트릭 포함
   const rows = await query(`
     WITH base AS (
       SELECT
-        c.business_items_summarized AS industry,
-        ROUND(SAFE_MULTIPLY(u.m1_use_limit_rate, 100), 1) AS m1,
-        CASE WHEN u.m1_use_limit_rate >= 0.2 THEN 1 ELSE 0 END AS m1_hit
+        TRIM(category) AS industry,
+        CASE WHEN u.m0_normal_amount > 0 OR u.m1_normal_amount > 0 OR u.m2_normal_amount > 0 OR u.m3_normal_amount > 0 THEN 1 ELSE 0 END AS has_fs,
+        ROUND(SAFE_MULTIPLY(u.m1_use_limit_rate, 100), 1) AS m1_val,
+        CASE WHEN u.m1_use_limit_rate >= 0.2 THEN 1 ELSE 0 END AS m1_hit,
+        CASE WHEN u.m1_use_limit_rate IS NOT NULL THEN 1 ELSE 0 END AS m1_ok,
+        ROUND(SAFE_MULTIPLY(u.m2_use_limit_rate, 100), 1) AS m2_val,
+        CASE WHEN u.m2_use_limit_rate >= 0.35 THEN 1 ELSE 0 END AS m2_hit,
+        CASE WHEN u.m2_use_limit_rate IS NOT NULL THEN 1 ELSE 0 END AS m2_ok,
+        ROUND(SAFE_MULTIPLY(u.m3_use_limit_rate, 100), 1) AS m3_val,
+        CASE WHEN u.m3_use_limit_rate >= 0.45 THEN 1 ELSE 0 END AS m3_hit,
+        CASE WHEN u.m3_use_limit_rate IS NOT NULL THEN 1 ELSE 0 END AS m3_ok
       FROM \`gowid-prd.mart_card.export_card_issuance_initial_usage\` u
       JOIN \`gowid-prd.dw_dimension.corporation\` c ON u.corp_id = c.corp_id
+      CROSS JOIN UNNEST(SPLIT(c.business_items_innoforest, ',')) AS category
       WHERE u.first_card_issued_at >= '2025-01-01'
-        AND u.m1_use_limit_rate IS NOT NULL
-        AND c.business_items_summarized IS NOT NULL
-        AND c.business_items_summarized != ''
+        AND c.business_items_innoforest IS NOT NULL
+        AND c.business_items_innoforest != ''
+    ),
+    merged AS (
+      SELECT
+        CASE
+          WHEN industry IN ('패션', '뷰티/화장품') THEN '패션/뷰티/화장품'
+          ELSE industry
+        END AS name,
+        has_fs, m1_val, m1_hit, m1_ok, m2_val, m2_hit, m2_ok, m3_val, m3_hit, m3_ok
+      FROM base
     )
     SELECT
-      industry AS name,
-      ROUND(AVG(m1), 1) AS m1,
-      ROUND(SUM(m1_hit) * 100.0 / COUNT(*), 1) AS hit
-    FROM base
+      name,
+      COUNT(*) AS cnt,
+      ROUND(SUM(has_fs) * 100.0 / COUNT(*), 1) AS fs,
+      CASE WHEN SUM(m1_ok) > 0 THEN ROUND(AVG(CASE WHEN m1_ok = 1 THEN m1_val END), 1) ELSE NULL END AS m1,
+      CASE WHEN SUM(m1_ok) > 0 THEN ROUND(SUM(m1_hit) * 100.0 / SUM(m1_ok), 1) ELSE NULL END AS m1_hit,
+      CASE WHEN SUM(m2_ok) > 0 THEN ROUND(AVG(CASE WHEN m2_ok = 1 THEN m2_val END), 1) ELSE NULL END AS m2,
+      CASE WHEN SUM(m2_ok) > 0 THEN ROUND(SUM(m2_hit) * 100.0 / SUM(m2_ok), 1) ELSE NULL END AS m2_hit,
+      CASE WHEN SUM(m3_ok) > 0 THEN ROUND(AVG(CASE WHEN m3_ok = 1 THEN m3_val END), 1) ELSE NULL END AS m3,
+      CASE WHEN SUM(m3_ok) > 0 THEN ROUND(SUM(m3_hit) * 100.0 / SUM(m3_ok), 1) ELSE NULL END AS m3_hit
+    FROM merged
     GROUP BY 1
     HAVING COUNT(*) >= 3
-    ORDER BY m1 DESC
+    ORDER BY name
   `);
   return rows.map(r => ({
     name: r.name,
-    m1: Number(r.m1),
-    hit: Number(r.hit),
+    cnt: Number(r.cnt),
+    fs: Number(r.fs || 0),
+    m1: r.m1 != null ? Number(r.m1) : null,
+    m1_hit: r.m1_hit != null ? Number(r.m1_hit) : null,
+    m2: r.m2 != null ? Number(r.m2) : null,
+    m2_hit: r.m2_hit != null ? Number(r.m2_hit) : null,
+    m3: r.m3 != null ? Number(r.m3) : null,
+    m3_hit: r.m3_hit != null ? Number(r.m3_hit) : null,
   }));
 }
 
@@ -168,19 +226,19 @@ async function fetchTierData() {
     WITH base AS (
       SELECT
         CASE
-          WHEN normal_granted_limit < 1000000 THEN '100만 미만'
-          WHEN normal_granted_limit < 3000000 THEN '100만~300만'
-          WHEN normal_granted_limit < 10000000 THEN '300만~1천만'
-          WHEN normal_granted_limit < 50000000 THEN '1천만~5천만'
-          WHEN normal_granted_limit < 100000000 THEN '5천만~1억'
+          WHEN normal_granted_limit <= 5000000 THEN '~500만'
+          WHEN normal_granted_limit <= 10000000 THEN '500만~1천만'
+          WHEN normal_granted_limit <= 30000000 THEN '1천만~3천만'
+          WHEN normal_granted_limit <= 50000000 THEN '3천만~5천만'
+          WHEN normal_granted_limit <= 100000000 THEN '5천만~1억'
           ELSE '1억 이상'
         END AS tier,
         CASE
-          WHEN normal_granted_limit < 1000000 THEN 1
-          WHEN normal_granted_limit < 3000000 THEN 2
-          WHEN normal_granted_limit < 10000000 THEN 3
-          WHEN normal_granted_limit < 50000000 THEN 4
-          WHEN normal_granted_limit < 100000000 THEN 5
+          WHEN normal_granted_limit <= 5000000 THEN 1
+          WHEN normal_granted_limit <= 10000000 THEN 2
+          WHEN normal_granted_limit <= 30000000 THEN 3
+          WHEN normal_granted_limit <= 50000000 THEN 4
+          WHEN normal_granted_limit <= 100000000 THEN 5
           ELSE 6
         END AS tier_order,
         ROUND(SAFE_MULTIPLY(m1_use_limit_rate, 100), 1) AS m1,
@@ -226,6 +284,7 @@ async function fetchCompareData() {
         c.headcount,
         CASE WHEN c.is_connected_bank THEN 1 ELSE 0 END AS has_bank,
         CASE WHEN c.is_connected_hometax THEN 1 ELSE 0 END AS has_htax,
+        -- TODO: inv(인보이스) 컬럼 소스 미확인. corporation 테이블에 해당 컬럼 없음
         0 AS has_inv
       FROM \`gowid-prd.mart_card.export_card_issuance_initial_usage\` u
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON u.corp_id = c.corp_id
