@@ -11,37 +11,45 @@
     html { scroll-behavior: smooth; }
 
     :root {
-      --bg: #0f172a;
-      --bg-secondary: #0b1120;
-      --filter-bg: #1a2332;
-      --card: #1e293b;
-      --border: #334155;
-      --text: #e2e8f0;
-      --text-muted: #94a3b8;
+      --bg: #0c1222;
+      --bg-secondary: #0f172a;
+      --filter-bg: #151e30;
+      --card: #182136;
+      --card-elevated: #1e293b;
+      --border: rgba(148,163,184,0.12);
+      --border-strong: rgba(148,163,184,0.22);
+      --text: #cbd5e1;
+      --text-muted: #7b8ba3;
       --text-strong: #f1f5f9;
-      --primary: #3b82f6;
-      --accent: #ef4444;
-      --success: #10b981;
-      --warning: #f59e0b;
-      --info: #6366f1;
-      --orange: #f97316;
-      --shadow: 0 4px 24px rgba(0,0,0,0.35);
-      --shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
-      --radius: 14px;
+      --primary: #5b9cf6;
+      --primary-dim: rgba(91,156,246,0.12);
+      --accent: #f06060;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --info: #818cf8;
+      --orange: #fb923c;
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+      --shadow-sm: 0 2px 12px rgba(0,0,0,0.2);
+      --radius: 12px;
       --radius-sm: 8px;
+      --section-gap: 40px;
     }
 
     body.light-mode {
-      --bg: #f8fafc;
-      --bg-secondary: #eef2f7;
-      --filter-bg: #f1f5f9;
+      --bg: #f1f5f9;
+      --bg-secondary: #e8edf4;
+      --filter-bg: #eef2f7;
       --card: #ffffff;
-      --border: #e2e8f0;
-      --text: #1e293b;
-      --text-muted: #64748b;
+      --card-elevated: #ffffff;
+      --border: rgba(30,41,59,0.10);
+      --border-strong: rgba(30,41,59,0.18);
+      --text: #374151;
+      --text-muted: #6b7280;
       --text-strong: #0f172a;
-      --shadow: 0 4px 24px rgba(0,0,0,0.10);
-      --shadow-sm: 0 2px 8px rgba(0,0,0,0.07);
+      --primary: #3b82f6;
+      --primary-dim: rgba(59,130,246,0.08);
+      --shadow: 0 4px 24px rgba(0,0,0,0.08);
+      --shadow-sm: 0 1px 4px rgba(0,0,0,0.06);
     }
 
     body {
@@ -60,47 +68,47 @@
       top: 0;
       z-index: 100;
       background: var(--bg-secondary);
-      border-bottom: 1px solid var(--border);
-      padding: 14px 32px;
+      border-bottom: 1px solid var(--border-strong);
+      padding: 12px 32px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(12px);
     }
     .header-left h1 {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--text-strong);
       letter-spacing: -0.3px;
     }
     .header-left p {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
-      margin-top: 2px;
+      margin-top: 1px;
     }
     .theme-toggle {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 6px 14px;
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 5px 12px;
       cursor: pointer;
-      font-size: 14px;
-      color: var(--text);
-      transition: all 0.2s;
+      font-size: 13px;
+      color: var(--text-muted);
+      transition: all 0.15s;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
-    .theme-toggle:hover { background: var(--border); }
+    .theme-toggle:hover { border-color: var(--primary); color: var(--primary); }
 
     /* ─── FILTER BAR ─── */
     .filter-bar {
       background: var(--filter-bg);
       border-bottom: 1px solid var(--border);
-      padding: 12px 32px;
+      padding: 10px 32px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
     }
     .filter-bar label {
@@ -134,19 +142,20 @@
     }
     .filter-btn:hover { opacity: 0.85; }
     .filter-quick {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 6px 12px;
-      font-size: 12px;
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 500;
       color: var(--text-muted);
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.15s;
     }
     .filter-quick:hover, .filter-quick.active {
       border-color: var(--primary);
       color: var(--primary);
-      background: var(--card);
+      background: var(--primary-dim);
     }
     .filter-info {
       margin-left: auto;
@@ -155,31 +164,35 @@
     }
 
     /* ─── MAIN LAYOUT ─── */
-    main { max-width: 1500px; margin: 0 auto; padding: 28px 32px 60px; }
+    main { max-width: 1440px; margin: 0 auto; padding: 24px 28px 60px; }
 
     /* ─── SECTION HEADERS ─── */
     .section-header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin: 36px 0 20px;
+      gap: 14px;
+      margin: var(--section-gap) 0 18px;
+      padding: 16px 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
     }
     .section-header:first-child { margin-top: 0; }
     .layer-num {
-      width: 36px; height: 36px; border-radius: 10px; display: flex;
-      align-items: center; justify-content: center; font-size: 15px;
-      font-weight: 700; flex-shrink: 0; letter-spacing: -0.3px;
+      width: 40px; height: 40px; border-radius: 10px; display: flex;
+      align-items: center; justify-content: center; font-size: 16px;
+      font-weight: 800; flex-shrink: 0; letter-spacing: -0.3px;
     }
     .section-header h2 {
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--text-strong);
       letter-spacing: -0.3px;
     }
     .section-header p {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
-      letter-spacing: -0.1px;
+      margin-top: 1px;
     }
 
     /* ─── CARDS ─── */
@@ -187,71 +200,74 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 20px;
-      box-shadow: var(--shadow-sm);
-      transition: box-shadow 0.2s;
+      padding: 18px;
+      transition: border-color 0.2s;
     }
-    .card:hover { box-shadow: var(--shadow); }
     .card-title {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
-      letter-spacing: -0.1px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
       margin-bottom: 8px;
     }
     .card-value {
       font-size: 28px;
-      font-weight: 700;
+      font-weight: 800;
       color: var(--text-strong);
-      letter-spacing: -0.5px;
+      letter-spacing: -1px;
+      line-height: 1.1;
     }
     .card-sub {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
       margin-top: 4px;
-      letter-spacing: -0.1px;
     }
     .card-badge {
       display: inline-block;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 20px;
-      margin-top: 6px;
-      letter-spacing: -0.1px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      margin-top: 8px;
     }
-    .badge-green { background: rgba(16,185,129,0.15); color: var(--success); }
-    .badge-red { background: rgba(239,68,68,0.15); color: var(--accent); }
-    .badge-amber { background: rgba(245,158,11,0.15); color: var(--warning); }
-    .badge-blue { background: rgba(59,130,246,0.15); color: var(--primary); }
+    .badge-green { background: rgba(52,211,153,0.12); color: var(--success); }
+    .badge-red { background: rgba(240,96,96,0.12); color: var(--accent); }
+    .badge-amber { background: rgba(251,191,36,0.12); color: var(--warning); }
+    .badge-blue { background: var(--primary-dim); color: var(--primary); }
 
     /* ─── KPI GRID ─── */
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 20px;
+      gap: 12px;
+      margin-bottom: 16px;
     }
+    .kpi-grid > .card {
+      border-top: 2px solid var(--border-strong);
+      cursor: pointer;
+    }
+    .kpi-grid > .card:hover { border-color: var(--primary); }
     @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 
     /* ─── 2-COL GRID ─── */
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
     @media (max-width: 900px) { .two-col, .three-col { grid-template-columns: 1fr; } }
 
     /* ─── INSIGHT CARD ─── */
     .insight-card {
-      background: var(--card);
+      background: var(--bg-secondary);
       border: 1px solid var(--border);
-      border-left: 4px solid var(--accent);
+      border-left: 3px solid var(--accent);
       border-radius: var(--radius);
-      padding: 16px 20px;
-      margin-bottom: 20px;
+      padding: 14px 18px;
+      margin-bottom: 12px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.2s;
     }
-    .insight-card:hover { background: rgba(59,130,246,0.03); }
-    .insight-card .insight-toggle { float: right; color: var(--text-muted); font-size: 12px; transition: transform 0.2s; }
+    .insight-card:hover { border-left-width: 4px; }
+    .insight-card .insight-toggle { float: right; color: var(--text-muted); font-size: 11px; transition: transform 0.2s; }
     .insight-card.open .insight-toggle { transform: rotate(180deg); }
     .insight-card ul { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; padding: 0; list-style: none; }
     .insight-card.open ul { max-height: 500px; }
@@ -259,16 +275,17 @@
     .insight-card.amber { border-left-color: var(--warning); }
     .insight-card.blue { border-left-color: var(--primary); }
     .insight-card h3 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       color: var(--text-strong);
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .insight-card ul li {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text);
-      padding: 4px 0;
+      padding: 5px 0;
       border-bottom: 1px solid var(--border);
+      line-height: 1.6;
     }
     .insight-card ul li:last-child { border-bottom: none; }
     .insight-card ul li strong { color: var(--text-strong); }
@@ -278,7 +295,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 11px;
       white-space: nowrap;
     }
     thead th {
@@ -287,52 +304,56 @@
       font-weight: 600;
       text-align: center;
       padding: 8px 10px;
-      border: 1px solid var(--border);
+      border-bottom: 2px solid var(--border-strong);
       position: sticky;
       top: 0;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
     tbody td {
       text-align: center;
       padding: 7px 10px;
-      border: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
       color: var(--text);
       transition: background 0.15s;
     }
-    tbody td:first-child { text-align: left; font-weight: 500; }
-    tbody tr:hover td { background: rgba(59,130,246,0.05); }
+    tbody td:first-child { text-align: left; font-weight: 600; color: var(--text-strong); }
+    tbody tr:hover td { background: var(--primary-dim); }
     tbody tr.total-row td {
       font-weight: 700;
       background: var(--bg-secondary);
       color: var(--text-strong);
+      border-top: 2px solid var(--border-strong);
     }
-    .cell-danger { background: rgba(239,68,68,0.18) !important; color: #f87171 !important; font-weight: 700; }
+    .cell-danger { background: rgba(240,96,96,0.15) !important; color: #f87171 !important; font-weight: 700; }
 
     /* ─── CHART WRAPPERS ─── */
     .chart-wrap { position: relative; }
     .chart-wrap canvas { max-width: 100%; }
 
     /* ─── ACTION CARDS ─── */
-    .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
     @media (max-width: 700px) { .action-grid { grid-template-columns: 1fr; } }
     .action-card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 18px 20px;
+      padding: 16px 18px;
     }
     .action-card .priority {
       display: inline-block;
       font-size: 10px;
       font-weight: 700;
       padding: 2px 8px;
-      border-radius: 20px;
+      border-radius: 6px;
       margin-bottom: 8px;
     }
-    .p0 { background: rgba(239,68,68,0.15); color: var(--accent); }
-    .p1 { background: rgba(245,158,11,0.15); color: var(--warning); }
-    .action-card h3 { font-size: 14px; font-weight: 700; color: var(--text-strong); margin-bottom: 8px; }
+    .p0 { background: rgba(240,96,96,0.12); color: var(--accent); }
+    .p1 { background: rgba(251,191,36,0.12); color: var(--warning); }
+    .action-card h3 { font-size: 13px; font-weight: 700; color: var(--text-strong); margin-bottom: 6px; }
     .action-card ul { list-style: none; padding: 0; }
-    .action-card ul li { font-size: 12px; color: var(--text-muted); padding: 3px 0; }
+    .action-card ul li { font-size: 11px; color: var(--text-muted); padding: 3px 0; line-height: 1.5; }
     .action-card ul li::before { content: "\2192 "; color: var(--primary); font-weight: 700; }
 
     /* ─── HYPOTHESIS TABLE ─── */
@@ -347,46 +368,46 @@
 
     /* ─── COMPARE TOGGLE ─── */
     .compare-btn {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 6px 16px;
-      font-size: 12px;
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 5px 14px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.15s;
     }
     .compare-btn:hover { border-color: var(--primary); color: var(--primary); }
     .compare-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
     /* ─── COMPARISON CARDS ─── */
-    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
     .compare-card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 18px 20px;
+      padding: 16px 18px;
     }
     .compare-card .compare-title {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       color: var(--text-strong);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .compare-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .compare-dot { width: 8px; height: 8px; border-radius: 50%; }
     .dot-green { background: var(--success); }
     .dot-red { background: var(--accent); }
     .compare-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 5px 0;
+      padding: 4px 0;
       border-bottom: 1px solid var(--border);
-      font-size: 12px;
+      font-size: 11px;
     }
     .compare-row:last-child { border-bottom: none; }
     .compare-row .label { color: var(--text-muted); }
@@ -423,20 +444,20 @@
     /* ─── METRIC FILTER BUTTONS ─── */
     .metric-filter-bar {
       display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
+      gap: 6px;
+      margin-bottom: 16px;
       flex-wrap: wrap;
     }
     .metric-btn {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 8px 20px;
-      font-size: 13px;
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 6px 16px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-muted);
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.15s;
     }
     .metric-btn:hover { border-color: var(--primary); color: var(--primary); }
     .metric-btn.active {
@@ -545,42 +566,45 @@
 
     /* ─── WEEKLY SUMMARY ─── */
     .weekly-summary {
-      background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(16,185,129,0.08));
+      background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 24px;
-      margin-bottom: 28px;
+      padding: 20px;
+      margin-bottom: 16px;
     }
     .weekly-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 20px;
+      gap: 16px;
     }
     @media (max-width: 900px) { .weekly-grid { grid-template-columns: 1fr; } }
     .weekly-box h3 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       color: var(--text-strong);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
     .weekly-box ul { list-style: none; padding: 0; }
     .weekly-box ul li {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text);
-      padding: 5px 0;
+      padding: 4px 0;
       border-bottom: 1px solid var(--border);
+      line-height: 1.5;
     }
     .weekly-box ul li:last-child { border-bottom: none; }
     .weekly-box ul li strong { color: var(--text-strong); }
     .weekly-tag {
       display: inline-block;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 20px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
     .tag-a { background: rgba(59,130,246,0.15); color: var(--primary); }
     .tag-b { background: rgba(16,185,129,0.15); color: var(--success); }
@@ -593,26 +617,26 @@
     .section-collapse-header {
       display: flex; align-items: center; justify-content: space-between;
       cursor: pointer; user-select: none;
-      padding: 12px 20px; border-radius: var(--radius);
+      padding: 10px 16px; border-radius: var(--radius-sm);
       background: var(--card); border: 1px solid var(--border);
-      margin-bottom: 12px; transition: box-shadow 0.2s;
+      margin-bottom: 10px; transition: border-color 0.2s;
     }
-    .section-collapse-header:hover { box-shadow: var(--shadow-sm); }
-    .section-collapse-header h2 { font-size: 15px; font-weight: 700; color: var(--text-strong); }
+    .section-collapse-header:hover { border-color: var(--border-strong); }
+    .section-collapse-header h2 { font-size: 13px; font-weight: 700; color: var(--text-strong); }
     .section-collapse-header .collapse-badge {
-      font-size: 11px; font-weight: 600; padding: 2px 10px;
-      border-radius: 20px; margin-left: 10px;
+      font-size: 10px; font-weight: 600; padding: 2px 8px;
+      border-radius: 6px; margin-left: 8px;
     }
-    .section-collapse-header .collapse-arrow { font-size: 14px; color: var(--text-muted); transition: transform 0.2s; }
+    .section-collapse-header .collapse-arrow { font-size: 12px; color: var(--text-muted); transition: transform 0.2s; }
     .section-collapse-body { overflow: hidden; transition: max-height 0.35s ease, margin-top 0.2s; }
 
     /* ─── URGENT ALERT BANNERS ─── */
-    .alert-panel { display:flex; flex-direction:column; gap:10px; }
+    .alert-panel { display:flex; flex-direction:column; gap:8px; }
     .alert-banner {
-      display: flex; align-items: flex-start; gap: 14px;
-      padding: 14px 20px; border-radius: var(--radius);
-      font-size: 13px; line-height: 1.5;
-      border-left: 4px solid;
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 16px; border-radius: var(--radius-sm);
+      font-size: 12px; line-height: 1.5;
+      border-left: 3px solid;
       transition: opacity 0.3s, max-height 0.3s;
     }
     .alert-banner.resolved { opacity: 0.3; max-height: 0; overflow: hidden; padding: 0 20px; margin: 0; }
@@ -652,6 +676,60 @@
     }
     .alert-green .alert-countdown { color: #10b981; }
 
+    /* ─── CLAUDE ASSESSMENT BOX ─── */
+    .assess-box {
+      background: var(--bg-secondary);
+      border-left: 3px solid var(--text-muted);
+      border-radius: 0 8px 8px 0;
+      padding: 10px 16px;
+      margin: 8px 0 16px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .assess-box:hover { background: rgba(148,163,184,0.08); }
+    .assess-box.signal-green { border-left-color: var(--text-muted); }
+    .assess-box.signal-yellow { border-left-color: var(--text-muted); }
+    .assess-box.signal-red { border-left-color: var(--text-muted); }
+    .assess-header {
+      display: flex; align-items: center; gap: 8px;
+      font-weight: 600; color: var(--text-muted); font-size: 12px;
+    }
+    .assess-header .signal {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .signal-dot-green { background: #94a3b8; box-shadow: 0 0 4px rgba(148,163,184,0.5); }
+    .signal-dot-yellow { background: #94a3b8; box-shadow: 0 0 4px rgba(148,163,184,0.5); }
+    .signal-dot-red { background: #94a3b8; box-shadow: 0 0 4px rgba(148,163,184,0.5); }
+    .assess-expand {
+      font-size: 10px; color: var(--text-muted); margin-left: auto;
+      font-weight: 400; white-space: nowrap; opacity: 0.6;
+    }
+    .assess-box.open .assess-expand { display: none; }
+    .assess-body { display: none; margin-top: 10px; }
+    .assess-box.open .assess-body { display: block; }
+    .assess-section { margin-bottom: 10px; }
+    .assess-section:last-child { margin-bottom: 0; }
+    .assess-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 4px; color: var(--text-muted);
+    }
+    .assess-text { font-size: 12px; color: var(--text); line-height: 1.6; }
+    .assess-text strong { color: var(--text-strong); }
+    .assess-action {
+      margin-top: 8px; padding: 8px 12px;
+      background: rgba(148,163,184,0.06); border-radius: 6px;
+      font-size: 11px; color: var(--text);
+    }
+    .assess-action ul { list-style: disc; padding-left: 16px; margin: 0; }
+    .assess-action ul li { margin-bottom: 2px; }
+    .assess-skip {
+      margin-top: 6px; font-size: 11px; color: var(--text-muted);
+      font-style: italic; opacity: 0.7;
+    }
+
     /* ─── CONDITIONAL TABLE CELLS ─── */
     .cell-warn { background: rgba(245,158,11,0.15); font-weight: 600; }
     .cell-good { color: var(--success); font-weight: 600; }
@@ -667,11 +745,11 @@
     .nav-link:hover { background: var(--card); color: var(--text); }
     .header-right { display: flex; align-items: center; gap: 8px; }
     .header-btn {
-      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-      padding: 6px 14px; font-size: 12px; font-weight: 600; color: var(--text-muted);
+      background: transparent; border: 1px solid var(--border-strong); border-radius: 6px;
+      padding: 5px 12px; font-size: 11px; font-weight: 600; color: var(--text-muted);
       cursor: pointer; transition: all 0.15s;
     }
-    .header-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .header-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-dim); }
     @media (max-width: 900px) { .header-nav { display: none; } }
 
     /* ─── PIN LOCK SCREEN ─── */
@@ -1095,9 +1173,9 @@
     <div id="alertSection">
       <div class="section-collapse-header" onclick="toggleSection('alert')">
         <h2>🚨 긴급 알림 <span class="collapse-badge" style="background:rgba(239,68,68,0.15);color:#ef4444;" id="alertBadge">0건</span></h2>
-        <span class="collapse-arrow" id="alertArrow">▼</span>
+        <span class="collapse-arrow" id="alertArrow">▶</span>
       </div>
-      <div class="section-collapse-body" id="alertBody" style="max-height:2000px;margin-top:0;">
+      <div class="section-collapse-body" id="alertBody" style="max-height:0px;margin-top:0;">
         <div class="alert-panel" id="alertPanel"></div>
       </div>
     </div>
@@ -1106,9 +1184,9 @@
     <div id="summarySection">
       <div class="section-collapse-header" onclick="toggleSection('summary')">
         <h2 id="weeklySummaryTitle">📋 이번주 Executive Summary</h2>
-        <span class="collapse-arrow" id="summaryArrow">▼</span>
+        <span class="collapse-arrow" id="summaryArrow">▶</span>
       </div>
-      <div class="section-collapse-body" id="summaryBody" style="max-height:2000px;margin-top:0;">
+      <div class="section-collapse-body" id="summaryBody" style="max-height:0px;margin-top:0;">
         <div class="weekly-summary" style="margin-bottom:0;">
           <div class="weekly-grid" id="weeklySummaryGrid"></div>
         </div>
@@ -1126,6 +1204,7 @@
       <p>도입신청부터 카드발급까지 단계별 전환율 분석</p>
     </div>
   </div>
+  <div id="assessPartA"></div>
 
   <!-- A-0a: 발급 기준 비교 -->
   <div id="partAIssuedBar" class="card" style="margin-bottom:8px;padding:10px 16px;"></div>
@@ -1150,7 +1229,7 @@
   </div>
 
   <!-- A-2: Insight -->
-  <div class="insight-card open" onclick="this.classList.toggle('open')">
+  <div class="insight-card" onclick="this.classList.toggle('open')">
     <h3>핵심 병목 인사이트 <span class="insight-toggle">&#x25BC;</span></h3>
     <ul>
       <li><strong>1위 병목: 한도산출 0원</strong> — 한도산출 완료 중 상당 비율이 0원으로 발급 자체가 불가. 특히 26년01월 133건/194건(68.6%) 급증, 대량 유입 대비 한도 산출 품질 저하 주의</li>
@@ -1160,10 +1239,15 @@
     </ul>
   </div>
 
-  <!-- A-3: Monthly Table -->
+  <!-- A-3: Monthly Table (collapsible) -->
   <div class="card" style="margin-bottom:20px;">
-    <div class="card-title" style="margin-bottom:12px;">월별 상세 퍼널 현황</div>
-    <div class="table-wrap" id="funnelTableWrap"></div>
+    <div class="card-title" style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;justify-content:space-between;" onclick="const b=document.getElementById('funnelTableBody');const a=this.querySelector('.collapse-arrow');if(b.style.maxHeight&&b.style.maxHeight!=='0px'){b.style.maxHeight='0px';b.style.overflow='hidden';a.textContent='▶';}else{b.style.maxHeight=b.scrollHeight+'px';b.style.overflow='visible';a.textContent='▼';}">
+      월별 상세 퍼널 현황
+      <span class="collapse-arrow" style="font-size:12px;color:var(--text-muted);transition:transform 0.2s;">▶</span>
+    </div>
+    <div id="funnelTableBody" style="max-height:0px;overflow:hidden;transition:max-height 0.3s ease;">
+      <div class="table-wrap" id="funnelTableWrap" style="margin-top:12px;"></div>
+    </div>
   </div>
 
   <!-- ══════════════════════════════════════════
@@ -1176,6 +1260,7 @@
       <p>신규 입회 고객 사용 유도 퍼널 · 코호트별 목표 달성 트래킹</p>
     </div>
   </div>
+  <div id="assessPartB"></div>
 
   <!-- B-0: All Metrics KPI Grid -->
   <div class="kpi-grid" id="kpiRowB"></div>
@@ -1226,7 +1311,7 @@
         <canvas id="tierChart"></canvas>
       </div>
     </div>
-    <div class="insight-card green open" onclick="this.classList.toggle('open')" id="segmentInsight" style="margin-bottom:0; display:flex; flex-direction:column; justify-content:center;">
+    <div class="insight-card green" onclick="this.classList.toggle('open')" id="segmentInsight" style="margin-bottom:0; display:flex; flex-direction:column; justify-content:center;">
       <h3>고객 세그먼트 인사이트 <span class="insight-toggle">&#x25BC;</span></h3>
       <ul id="segmentInsightList"></ul>
     </div>
@@ -1240,11 +1325,18 @@
       <p>업종별 첫결제율 · 소진율 · 목표달성률 분석</p>
     </div>
   </div>
-  <div style="display:flex;gap:8px;margin-bottom:12px;">
+  <div id="assessPartC"></div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+    <span style="font-size:11px;font-weight:600;color:var(--text-muted);">지표</span>
     <button class="compare-btn active" data-ind-metric="fs" onclick="switchIndustryMetric('fs')">첫결제</button>
     <button class="compare-btn" data-ind-metric="m1" onclick="switchIndustryMetric('m1')">M1</button>
     <button class="compare-btn" data-ind-metric="m2" onclick="switchIndustryMetric('m2')">M2</button>
     <button class="compare-btn" data-ind-metric="m3" onclick="switchIndustryMetric('m3')">M3</button>
+    <span style="width:1px;height:16px;background:var(--border-strong);margin:0 4px;"></span>
+    <span style="font-size:11px;font-weight:600;color:var(--text-muted);">정렬 <span class="info-tip">i<span class="tip-text"><strong>지표율</strong> — 선택한 지표(첫결제율/M1/M2/M3 소진율)의 % 기준 정렬<br><br><strong>고객수</strong> — 업종별 전체 법인 수 기준 정렬. 볼륨이 큰 업종을 먼저 확인할 때 유용<br><br><strong>달성건수</strong> — 법인수 x 지표율로 계산한 실제 달성 법인 수 기준 정렬. 비율은 높지만 모수가 적은 업종과 구분할 때 유용<br><br>같은 버튼을 다시 클릭하면 오름차순/내림차순이 전환됩니다.</span></span></span>
+    <button class="compare-btn active" data-ind-sort="rate" onclick="switchIndustrySort('rate')" id="indSortRate">지표율 ↓</button>
+    <button class="compare-btn" data-ind-sort="cnt" onclick="switchIndustrySort('cnt')" id="indSortCnt">고객수 ↓</button>
+    <button class="compare-btn" data-ind-sort="abs" onclick="switchIndustrySort('abs')" id="indSortAbs">달성건수 ↓</button>
   </div>
   <div class="two-col">
     <div class="card">
@@ -1254,11 +1346,11 @@
       </div>
     </div>
     <div>
-      <div class="insight-card green open" onclick="this.classList.toggle('open')" style="margin-bottom:16px;">
+      <div class="insight-card green" onclick="this.classList.toggle('open')" style="margin-bottom:16px;">
         <h3 id="industryInsightTitle">업종별 인사이트 <span class="insight-toggle">&#x25BC;</span></h3>
         <ul id="industryInsightList"></ul>
       </div>
-      <div class="insight-card amber open" onclick="this.classList.toggle('open')">
+      <div class="insight-card amber" onclick="this.classList.toggle('open')">
         <h3 id="onboardingPriorityTitle">개선 우선순위 업종 <span class="insight-toggle">&#x25BC;</span></h3>
         <ul id="onboardingPriorityList"></ul>
       </div>
@@ -1276,7 +1368,7 @@
       </div>
     </div>
     <div id="cohortProfileWrap" style="overflow-x:auto;">
-      <table class="mini-table" id="cohortProfileTable" style="width:100%;font-size:12px;">
+      <table class="mini-table" id="cohortProfileTable" style="width:100%;font-size:11px;">
         <thead>
           <tr>
             <th style="text-align:left;">업종</th>
@@ -1607,6 +1699,7 @@ function applyFilter() {
   buildPartB(filteredUsage);
   buildPartC(filtered, filteredUsage);
   buildHypBacklog(filtered, filteredUsage);
+  buildAssessments(filtered, filteredUsage);
 }
 
 /* ══════════════════════════════════════════
@@ -2416,6 +2509,9 @@ const IND_METRIC_CFG = {
   m3:  { key: 'm3', hitKey: 'm3_hit', label: 'M3 평균 소진율', unit: '%', thresholds: [60, 45], xMax: 120, target: '45%' },
 };
 
+let _industrySortKey = 'rate'; // 'rate' | 'cnt' | 'abs'
+let _industrySortDir = 'desc';  // 'desc' | 'asc'
+
 function switchIndustryMetric(metric) {
   _currentIndustryMetric = metric;
   document.querySelectorAll('[data-ind-metric]').forEach(btn => {
@@ -2424,16 +2520,55 @@ function switchIndustryMetric(metric) {
   buildIndustryChart();
 }
 
+function switchIndustrySort(key) {
+  if (_industrySortKey === key) {
+    _industrySortDir = _industrySortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _industrySortKey = key;
+    _industrySortDir = 'desc';
+  }
+  document.querySelectorAll('[data-ind-sort]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.indSort === key);
+  });
+  const arrow = _industrySortDir === 'desc' ? '↓' : '↑';
+  const sortLabels = { rate: '지표율', cnt: '고객수', abs: '달성건수' };
+  document.querySelectorAll('[data-ind-sort]').forEach(btn => {
+    const k = btn.dataset.indSort;
+    btn.textContent = k === key ? `${sortLabels[k]} ${arrow}` : `${sortLabels[k]} ↓`;
+  });
+  buildIndustryChart();
+}
+
+function _industrySortFn(a, b, cfg) {
+  let va, vb;
+  if (_industrySortKey === 'cnt') {
+    va = a.cnt; vb = b.cnt;
+  } else if (_industrySortKey === 'abs') {
+    va = Math.round(a.cnt * a[cfg.key] / 100);
+    vb = Math.round(b.cnt * b[cfg.key] / 100);
+  } else {
+    va = a[cfg.key]; vb = b[cfg.key];
+  }
+  return _industrySortDir === 'desc' ? vb - va : va - vb;
+}
+
 function buildIndustryChart(filteredUsage) {
   destroyChart('industryChart');
   const ctx = document.getElementById('industryChart').getContext('2d');
   const cfg = IND_METRIC_CFG[_currentIndustryMetric];
 
-  // Filter and sort by selected metric
+  // Filter and sort
   const validData = INDUSTRY_DATA.filter(d => d[cfg.key] != null && d[cfg.key] > 0);
-  const sorted = [...validData].sort((a, b) => b[cfg.key] - a[cfg.key]);
+  const sorted = [...validData].sort((a, b) => _industrySortFn(a, b, cfg));
 
-  const labels = sorted.map(d => `${d.name} (${d.cnt}사)`);
+  const sortLabels = { rate: '지표율', cnt: '고객수', abs: '달성건수' };
+  const dirLabel = _industrySortDir === 'desc' ? '높은 순' : '낮은 순';
+  const sortLabel = `${sortLabels[_industrySortKey]} ${dirLabel}`;
+
+  const labelFn = _industrySortKey === 'abs'
+    ? d => `${d.name} (${Math.round(d.cnt * d[cfg.key] / 100)}건/${d.cnt}사)`
+    : d => `${d.name} (${d.cnt}사)`;
+  const labels = sorted.map(labelFn);
   const values = sorted.map(d => d[cfg.key]);
   const [hi, lo] = cfg.thresholds;
   const colors = values.map(v => v >= hi ? 'rgba(16,185,129,0.75)' : v >= lo ? 'rgba(245,158,11,0.75)' : 'rgba(239,68,68,0.75)');
@@ -2443,7 +2578,7 @@ function buildIndustryChart(filteredUsage) {
   const weightedAvg = totalCnt > 0 ? Math.round(sorted.reduce((s,r) => s + r[cfg.key] * r.cnt, 0) / totalCnt * 10) / 10 : 0;
 
   document.getElementById('industryTitle').textContent = `업종별 인사이트 (${cfg.label} 가중평균 ${weightedAvg}%)`;
-  document.getElementById('industryChartTitle').textContent = `업종별 ${cfg.label} (%) — 높은 순 정렬`;
+  document.getElementById('industryChartTitle').textContent = `업종별 ${cfg.label} (%) — ${sortLabel} 정렬`;
 
   chartInstances['industryChart'] = new Chart(ctx, {
     type: 'bar',
@@ -2732,10 +2867,10 @@ function buildCohortInsightCards(rows, totalCnt, cohort) {
   }
 
   container.innerHTML = cards.map(c => `
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;border-left:4px solid ${c.color};">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text);">${c.icon} ${c.title}</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">${c.body}</div>
-      <ul style="font-size:12px;color:var(--text);margin:0;padding-left:16px;line-height:1.7;">${c.actions}</ul>
+    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;border-left:3px solid ${c.color};">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-strong);">${c.icon} ${c.title}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.5;">${c.body}</div>
+      <ul style="font-size:11px;color:var(--text);margin:0;padding-left:14px;line-height:1.6;">${c.actions}</ul>
     </div>
   `).join('');
 }
@@ -3447,11 +3582,11 @@ function buildPartAIssuedBar(filtered) {
     const secondary = _partABasis === 'issued' ? submitCnt : issuedCnt;
     const diff = primary - secondary;
     const diffStr = diff !== 0
-      ? `<span style="font-size:10px;color:${diff > 0 ? 'var(--success)' : 'var(--accent)'};">(${diff > 0 ? '+' : ''}${diff})</span>`
+      ? `<span style="font-size:9px;color:${diff > 0 ? 'var(--success)' : 'var(--accent)'};">${diff > 0 ? '+' : ''}${diff}</span>`
       : '';
-    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">
-      <strong style="color:var(--text);">${r.label || r.month}</strong>
-      <span style="color:var(--primary);font-weight:700;">${primary}건</span>${diffStr}
+    return `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:3px 8px;background:var(--bg-secondary);border-radius:6px;">
+      <span style="color:var(--text-muted);font-weight:500;">${r.label || r.month}</span>
+      <span style="color:var(--text-strong);font-weight:700;">${primary}</span>${diffStr}
     </span>`;
   }).join('');
 
@@ -3464,17 +3599,17 @@ function buildPartAIssuedBar(filtered) {
 
   bar.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:13px;font-weight:700;color:var(--text);">카드발급 집계</span>
-        <button class="compare-btn ${_partABasis === 'submit' ? 'active' : ''}" data-parta-basis="submit" onclick="switchPartABasis('submit')" style="font-size:11px;padding:3px 10px;">신청월 기준</button>
-        <button class="compare-btn ${_partABasis === 'issued' ? 'active' : ''}" data-parta-basis="issued" onclick="switchPartABasis('issued')" style="font-size:11px;padding:3px 10px;">발급월 기준</button>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">카드발급 집계</span>
+        <button class="compare-btn ${_partABasis === 'submit' ? 'active' : ''}" data-parta-basis="submit" onclick="switchPartABasis('submit')">신청월 기준</button>
+        <button class="compare-btn ${_partABasis === 'issued' ? 'active' : ''}" data-parta-basis="issued" onclick="switchPartABasis('issued')">발급월 기준</button>
       </div>
-      <div style="font-size:14px;font-weight:700;color:var(--primary);">
-        ${basisLabel} 합계 ${totalPrimary}건
-        <span style="font-size:11px;font-weight:400;color:var(--text-muted);">(${otherLabel} ${totalSecondary}건)</span>
+      <div style="font-size:13px;font-weight:700;color:var(--primary);">
+        ${totalPrimary}건
+        <span style="font-size:10px;font-weight:400;color:var(--text-muted);">${otherLabel} ${totalSecondary}건</span>
       </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
       ${pills}
     </div>
   `;
@@ -3749,6 +3884,135 @@ function buildHypBacklog(filtered, filteredUsage) {
 }
 
 /* ══════════════════════════════════════════
+   CLAUDE'S ASSESSMENT (IR Deck style)
+══════════════════════════════════════════ */
+function _assessBox(signal, title, sections, skipNote) {
+  const cls = signal === 'green' ? 'signal-green' : signal === 'yellow' ? 'signal-yellow' : 'signal-red';
+  const dotCls = `signal-dot-${signal}`;
+  let body = sections.map(s => `
+    <div class="assess-section">
+      <div class="assess-label assess-label-${s.type}">${s.label}</div>
+      <div class="assess-text">${s.text}</div>
+    </div>
+  `).join('');
+  if (skipNote) {
+    body += `<div class="assess-skip">${skipNote}</div>`;
+  }
+  return `
+    <div class="assess-box ${cls}" onclick="this.classList.toggle('open')">
+      <div class="assess-header">
+        <span class="signal ${dotCls}"></span>
+        Claude's Assessment — ${title}
+        <span class="assess-expand">click to expand</span>
+      </div>
+      <div class="assess-body">${body}</div>
+    </div>
+  `;
+}
+
+function buildAssessments(filtered, filteredUsage) {
+  // ── Part A Assessment ──
+  const total = sumData(filtered);
+  const latest = filtered[filtered.length - 1];
+  const prev = filtered.length >= 2 ? filtered[filtered.length - 2] : null;
+  const convRate = total.submitted > 0 ? pct(total.card_issued, total.submitted) : 0;
+  const zeroRate = total.limit_result_any > 0 ? pct(total.limit_zero, total.limit_result_any) : 0;
+  const latestConv = latest && latest.submitted > 0 ? pct(latest.card_issued, latest.submitted) : 0;
+  const latestZero = latest && latest.limit_result_any > 0 ? pct(latest.limit_zero, latest.limit_result_any) : 0;
+
+  const aSignal = latestZero > 50 || latestConv < 15 ? 'red' : latestZero > 35 || latestConv < 25 ? 'yellow' : 'green';
+  const aTrend = prev ? (latest.card_issued > prev.card_issued ? '개선' : latest.card_issued < prev.card_issued ? '악화' : '유지') : '';
+  const aSkips = [];
+  if (zeroRate <= 20) aSkips.push('한도0원 비율이 안정적이므로 별도 긴급 대응 불필요');
+  if (convRate >= 35) aSkips.push('전환율이 양호하므로 퍼널 구조 변경은 보류 권장');
+
+  document.getElementById('assessPartA').innerHTML = _assessBox(aSignal,
+    `신규입회 퍼널 (전환율 ${convRate}%)`,
+    [
+      { type: 'status', label: '현황',
+        text: `전체 전환율 <strong>${convRate}%</strong> (${total.card_issued}/${total.submitted}건). 한도0원 비율 <strong>${zeroRate}%</strong>(${total.limit_zero}건). ${latest ? `최근월(${latest.label}) 전환율 ${latestConv}%, 한도0원 ${latestZero}%.` : ''} ${aTrend ? `전월 대비 발급건수 <strong>${aTrend}</strong> 추세.` : ''}` },
+      { type: 'outlook', label: '단기 전망',
+        text: latestZero > 40
+          ? `한도0원이 ${latestZero}%로 높은 상태 지속 시 발급 가능 법인이 구조적으로 부족해집니다. <strong>유입 채널 품질 점검이 시급</strong>합니다.`
+          : latestConv < 20
+          ? `전환율이 ${latestConv}%로 저조합니다. 퍼널 중간 이탈 지점(승인→가입, 발급신청 완료)을 집중 모니터링해야 합니다.`
+          : `현재 추세가 유지되면 안정적인 발급 파이프라인이 유지됩니다. 한도0원 비율만 지속 관찰하면 충분합니다.` },
+      { type: 'conclusion', label: '결론',
+        text: aSignal === 'red'
+          ? `<strong>즉시 조치 필요.</strong> 한도산출 로직 재검토 + 유입 채널별 부적격 비율 분석 → 저품질 채널 축소.`
+          : aSignal === 'yellow'
+          ? `<strong>주의 관찰.</strong> 주간 단위 한도0원 추이 모니터링 + 이탈 구간별 리마인더 자동화 우선.`
+          : `<strong>양호.</strong> 현행 유지하되, 한도산출 품질 지표를 주간 리포트에 포함시키는 것을 권장합니다.` }
+    ],
+    aSkips.length > 0 ? `실행 보류: ${aSkips.join('. ')}` : null
+  );
+
+  // ── Part B Assessment ──
+  const usageData = filteredUsage || USAGE_DATA;
+  const usageAgg = getUsageFunnelAgg(filteredUsage);
+  const fsRate = usageAgg.total > 0 ? pct(usageAgg.first_spend, usageAgg.total) : 0;
+  const m1Hit = usageAgg.m1_eligible > 0 ? pct(usageAgg.m1_cnt, usageAgg.m1_eligible) : 0;
+  const m2Hit = usageAgg.m2_eligible > 0 ? pct(usageAgg.m2_cnt, usageAgg.m2_eligible) : 0;
+  const noSpendTotal = usageAgg.total - usageAgg.first_spend;
+
+  const bSignal = fsRate < 75 || m1Hit < 25 ? 'red' : fsRate < 85 || m1Hit < 35 ? 'yellow' : 'green';
+  const bSkips = [];
+  if (fsRate >= 90) bSkips.push('첫결제율 90%+ 달성 — 첫결제 유도 캠페인 추가 투자 불필요');
+  if (m1Hit >= 50) bSkips.push('M1 달성률 50%+ — M1 개선보다 M2/M3 리텐션에 집중');
+
+  document.getElementById('assessPartB').innerHTML = _assessBox(bSignal,
+    `사용 활성화 (첫결제 ${fsRate}%, M1 달성 ${m1Hit}%)`,
+    [
+      { type: 'status', label: '현황',
+        text: `첫결제율 <strong>${fsRate}%</strong> (미결제 ${noSpendTotal}사). M1 달성률 <strong>${m1Hit}%</strong>, M2 <strong>${m2Hit}%</strong>. ${noSpendTotal > 5 ? `미결제 ${noSpendTotal}사에 대한 개별 컨택이 가장 즉각적인 레버입니다.` : '미결제 법인 수가 소수로 관리 가능한 수준입니다.'}` },
+      { type: 'outlook', label: '단기 전망',
+        text: m1Hit < 30
+          ? `M1 달성률이 ${m1Hit}%로 저조합니다. 발급 후 첫 한 달이 <strong>사용 습관 형성의 골든타임</strong>인데 이를 놓치고 있습니다.`
+          : `M1 달성률 ${m1Hit}%는 ${m1Hit >= 45 ? '목표 근접' : '개선 여지 있음'}. M1→M2 이탈을 줄이는 것이 다음 핵심 과제입니다.` },
+      { type: 'conclusion', label: '결론',
+        text: bSignal === 'red'
+          ? `<strong>집중 개입 필요.</strong> D+3 자동 리마인더 + D+7 전화 컨택 프로세스를 즉시 가동. 미결제 법인 리스트를 매일 갱신.`
+          : bSignal === 'yellow'
+          ? `<strong>개선 필요.</strong> 코호트별 미결제 법인 개별 접근 + M1 미달성 그룹에 사용 유도 푸시 캠페인 실행.`
+          : `<strong>양호.</strong> 현행 온보딩 프로세스 유지. M2→M3 전환 개선에 리소스를 배분하세요.` }
+    ],
+    bSkips.length > 0 ? `실행 보류: ${bSkips.join('. ')}` : null
+  );
+
+  // ── Part C Assessment (Industry) ──
+  const topInd = [...INDUSTRY_DATA].sort((a, b) => b.cnt - a.cnt).slice(0, 3);
+  const lowFs = INDUSTRY_DATA.filter(d => d.fs < 85 && d.cnt >= 5).sort((a, b) => a.fs - b.fs);
+  const highFs = INDUSTRY_DATA.filter(d => d.fs >= 95 && d.cnt >= 5);
+  const totalIndCnt = INDUSTRY_DATA.reduce((s, d) => s + d.cnt, 0);
+  const avgFs = totalIndCnt > 0 ? Math.round(INDUSTRY_DATA.reduce((s, d) => s + d.fs * d.cnt, 0) / totalIndCnt * 10) / 10 : 0;
+
+  const cSignal = lowFs.length >= 3 ? 'yellow' : lowFs.length >= 1 ? 'yellow' : 'green';
+  const cSkips = [];
+  if (lowFs.length === 0) cSkips.push('첫결제율 85% 미만 업종 없음 — 업종별 긴급 개입 불필요');
+  const smallInds = INDUSTRY_DATA.filter(d => d.cnt < 5);
+  if (smallInds.length > 5) cSkips.push(`${smallInds.length}개 업종은 모수 5사 미만으로 통계적 의미 부족 — 개별 분석 보류`);
+
+  document.getElementById('assessPartC').innerHTML = _assessBox(cSignal,
+    `업종 포트폴리오 (가중평균 첫결제율 ${avgFs}%)`,
+    [
+      { type: 'status', label: '현황',
+        text: `전체 ${INDUSTRY_DATA.length}개 업종, ${totalIndCnt}사. 상위 3개 업종(<strong>${topInd.map(d => d.name).join(', ')}</strong>)이 ${pct(topInd.reduce((s,d)=>s+d.cnt,0), totalIndCnt)}% 차지. ${lowFs.length > 0 ? `첫결제율 85% 미만 업종: <strong>${lowFs.map(d => `${d.name}(${d.fs}%)`).join(', ')}</strong>.` : '모든 업종 첫결제율 85% 이상.'}` },
+      { type: 'outlook', label: '단기 전망',
+        text: lowFs.length > 0
+          ? `${lowFs[0].name} 등 저성과 업종은 온보딩 과정에서 업종 특성을 반영하지 못하고 있을 가능성이 높습니다. <strong>업종별 맞춤 첫결제 유도 시나리오</strong>가 필요합니다.`
+          : `업종별 편차가 크지 않아 범용 온보딩으로 충분합니다. 다만 ${topInd[0].name}(${topInd[0].cnt}사)의 볼륨이 크므로 이 업종의 M1 소진율 추이를 집중 관찰하세요.` },
+      { type: 'conclusion', label: '결론',
+        text: lowFs.length >= 2
+          ? `<strong>업종별 차별화 필요.</strong> ${lowFs.slice(0,2).map(d=>d.name).join(', ')} 대상 맞춤 온보딩 콘텐츠 제작. 나머지 업종은 현행 유지.`
+          : lowFs.length === 1
+          ? `<strong>소수 업종 집중.</strong> ${lowFs[0].name}(${lowFs[0].fs}%, ${lowFs[0].cnt}사) 원인 분석 후 개선. 전체적으로는 양호.`
+          : `<strong>양호.</strong> 업종별 큰 이슈 없음. 볼륨 상위 업종의 M1/M2 리텐션 유지에 집중하세요.` }
+    ],
+    cSkips.length > 0 ? `실행 보류: ${cSkips.join('. ')}` : null
+  );
+}
+
+/* ══════════════════════════════════════════
    BUILD ALL CHARTS (for theme change)
 ══════════════════════════════════════════ */
 function buildAllCharts() {
@@ -3763,6 +4027,7 @@ function buildAllCharts() {
   buildPartC(filtered, filteredUsage);
   buildHypBacklog(filtered, filteredUsage);
   buildTierChart();
+  buildAssessments(filtered, filteredUsage);
 }
 
 /* ══════════════════════════════════════════
