@@ -428,6 +428,121 @@ async function fetchFunnelDetail() {
   }));
 }
 
+async function fetchCohortIndustry() {
+  console.log('  [8/8] COHORT_INDUSTRY 조회 중...');
+  // card_application_funnel 테이블 기준 (FUNNEL_DATA card_issued와 동일 소스)
+  // 첫 번째 업종만 사용하여 법인당 1건 카운트
+  // LEFT JOIN으로 업종 미분류 법인도 포함
+  const rows = await query(`
+    WITH issued AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', f.card_application_submitted_at) AS cohort,
+        f.corp_id,
+        f.first_limit_result_amount AS granted_limit
+      FROM \`gowid-prd.mart_limit_application.card_application_funnel\` f
+      WHERE f.card_application_submitted_at >= '2025-01-01'
+        AND f.first_card_issued_at IS NOT NULL
+    ),
+    base AS (
+      SELECT
+        i.cohort,
+        i.corp_id,
+        i.granted_limit,
+        c.headcount,
+        CASE
+          WHEN c.business_items_innoforest IS NULL OR c.business_items_innoforest = '' THEN '기타/미분류'
+          ELSE TRIM(SPLIT(c.business_items_innoforest, ',')[OFFSET(0)])
+        END AS industry
+      FROM issued i
+      LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON i.corp_id = c.corp_id
+    ),
+    merged AS (
+      SELECT
+        cohort,
+        corp_id,
+        granted_limit,
+        headcount,
+        CASE
+          WHEN industry IN ('패션', '뷰티/화장품') THEN '패션/뷰티/화장품'
+          ELSE industry
+        END AS name
+      FROM base
+    )
+    SELECT
+      cohort,
+      name,
+      COUNT(*) AS cnt,
+      ROUND(AVG(granted_limit / 10000)) AS avg_limit,
+      ROUND(AVG(headcount), 1) AS avg_hc
+    FROM merged
+    GROUP BY 1, 2
+    ORDER BY cohort, cnt DESC
+  `);
+  return rows.map(r => ({
+    cohort: r.cohort,
+    label: fmtLabel(r.cohort),
+    name: r.name,
+    cnt: Number(r.cnt),
+    avg_limit: Number(r.avg_limit),
+    avg_hc: r.avg_hc != null ? Number(r.avg_hc) : null,
+  }));
+}
+
+async function fetchCohortIndustryByIssued() {
+  console.log('  [9/9] COHORT_INDUSTRY_ISSUED 조회 중...');
+  // 발급월 기준: 언제 신청했든 해당 월에 카드 발급 완료된 건
+  // export_card_issuance_initial_usage 테이블 사용 (사용자 확인 데이터와 동일 소스)
+  const rows = await query(`
+    WITH issued AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', u.first_card_issued_at) AS cohort,
+        u.corp_id,
+        u.normal_granted_limit AS granted_limit
+      FROM \`gowid-prd.mart_card.export_card_issuance_initial_usage\` u
+      WHERE u.first_card_issued_at >= '2025-01-01'
+    ),
+    base AS (
+      SELECT
+        i.cohort,
+        i.corp_id,
+        i.granted_limit,
+        c.headcount,
+        CASE
+          WHEN c.business_items_innoforest IS NULL OR c.business_items_innoforest = '' THEN '기타/미분류'
+          ELSE TRIM(SPLIT(c.business_items_innoforest, ',')[OFFSET(0)])
+        END AS industry
+      FROM issued i
+      LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON i.corp_id = c.corp_id
+    ),
+    merged AS (
+      SELECT
+        cohort, corp_id, granted_limit, headcount,
+        CASE
+          WHEN industry IN ('패션', '뷰티/화장품') THEN '패션/뷰티/화장품'
+          ELSE industry
+        END AS name
+      FROM base
+    )
+    SELECT
+      cohort,
+      name,
+      COUNT(*) AS cnt,
+      ROUND(AVG(granted_limit / 10000)) AS avg_limit,
+      ROUND(AVG(headcount), 1) AS avg_hc
+    FROM merged
+    GROUP BY 1, 2
+    ORDER BY cohort, cnt DESC
+  `);
+  return rows.map(r => ({
+    cohort: r.cohort,
+    label: fmtLabel(r.cohort),
+    name: r.name,
+    cnt: Number(r.cnt),
+    avg_limit: Number(r.avg_limit),
+    avg_hc: r.avg_hc != null ? Number(r.avg_hc) : null,
+  }));
+}
+
 // ─── HTML UPDATER ───
 
 function replaceConst(html, name, data) {
@@ -462,35 +577,31 @@ function updateTimestamp(html) {
 async function main() {
   console.log('🔄 대시보드 데이터 업데이트 시작\n');
 
-  const [funnel, usage, industry, tier, compare, corpDetail, funnelDetail] = await Promise.all([
-    fetchFunnelData(),
-    fetchUsageData(),
+  // ⚠ FUNNEL_DATA, USAGE_DATA, TIER_DATA, COMPARE_DATA는 수작업 보정 데이터이므로 업데이트하지 않음
+  const [industry, corpDetail, funnelDetail, cohortIndustry, cohortIndustryIssued] = await Promise.all([
     fetchIndustryData(),
-    fetchTierData(),
-    fetchCompareData(),
     fetchCorpDetail(),
     fetchFunnelDetail(),
+    fetchCohortIndustry(),
+    fetchCohortIndustryByIssued(),
   ]);
 
   console.log(`\n📊 조회 완료:`);
-  console.log(`  FUNNEL_DATA: ${funnel.length}개월`);
-  console.log(`  USAGE_DATA: ${usage.length}개 코호트`);
   console.log(`  INDUSTRY_DATA: ${industry.length}개 업종`);
-  console.log(`  TIER_DATA: ${tier.length}개 구간`);
-  console.log(`  COMPARE_DATA: ${compare.length}개 코호트`);
   console.log(`  CORP_DETAIL: ${corpDetail.length}개 법인`);
   console.log(`  FUNNEL_DETAIL: ${funnelDetail.length}개 법인`);
+  console.log(`  COHORT_INDUSTRY: ${cohortIndustry.length}개 코호트×업종 (신청월 기준)`);
+  console.log(`  COHORT_INDUSTRY_ISSUED: ${cohortIndustryIssued.length}개 코호트×업종 (발급월 기준)`);
+  console.log(`  (FUNNEL_DATA, USAGE_DATA, TIER_DATA, COMPARE_DATA는 보정 데이터 — 건너뜀)`);
 
   console.log('\n📝 HTML 파일 업데이트 중...');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
 
-  html = replaceConst(html, 'FUNNEL_DATA', funnel);
-  html = replaceConst(html, 'USAGE_DATA', usage);
   html = replaceConst(html, 'INDUSTRY_DATA', industry);
-  html = replaceConst(html, 'TIER_DATA', tier);
-  html = replaceConst(html, 'COMPARE_DATA', compare);
   html = replaceConst(html, 'CORP_DETAIL', corpDetail);
   html = replaceConst(html, 'FUNNEL_DETAIL', funnelDetail);
+  html = replaceConst(html, 'COHORT_INDUSTRY', cohortIndustry);
+  html = replaceConst(html, 'COHORT_INDUSTRY_ISSUED', cohortIndustryIssued);
   html = updateTimestamp(html);
 
   fs.writeFileSync(HTML_FILE, html);
