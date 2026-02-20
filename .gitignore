@@ -1,0 +1,7 @@
+.env
+*.json
+.DS_Store
+node_modules/
+.claude/
+pm/
+광고비_제대로_잡기/
