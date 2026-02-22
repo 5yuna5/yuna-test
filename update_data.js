@@ -29,6 +29,52 @@ function fmtLabel(month) {
   return `${y.slice(2)}년${m}월`;
 }
 
+// ─── 통합 업종 매핑 SQL ───
+// innoforest 카테고리 → 통합 카테고리
+const INNO_TO_UNIFIED = `
+  CASE
+    WHEN cat IN ('AI/딥테크/블록체인', '통신/보안/데이터') THEN 'IT/소프트웨어'
+    WHEN cat IN ('커머스', '홈리빙/펫') THEN '커머스'
+    WHEN cat = '광고/마케팅' THEN '광고/마케팅'
+    WHEN cat IN ('콘텐츠/예술', '소셜미디어/커뮤니티', '게임') THEN '콘텐츠/미디어'
+    WHEN cat = '인사/비즈니스/법률' THEN '경영/전문서비스'
+    WHEN cat IN ('패션', '뷰티/화장품') THEN '패션/뷰티'
+    WHEN cat = '교육' THEN '교육'
+    WHEN cat = '푸드/농업' THEN 'F&B/식품'
+    WHEN cat = '제조/하드웨어' THEN '제조/하드웨어'
+    WHEN cat = '부동산/건설' THEN '건설/부동산'
+    WHEN cat = '헬스케어/바이오' THEN '헬스케어/바이오'
+    WHEN cat = '피트니스/스포츠' THEN '피트니스/스포츠'
+    WHEN cat = '여행/레저' THEN '여행/숙박'
+    WHEN cat = '환경/에너지' THEN '환경/에너지'
+    WHEN cat = '물류' THEN '물류'
+    WHEN cat = '금융/보험/핀테크' THEN '금융/핀테크'
+    WHEN cat = '모빌리티/교통' THEN '모빌리티'
+    ELSE '기타'
+  END`;
+
+// business_items 키워드 → 통합 카테고리
+const BIZ_TO_UNIFIED = `
+  CASE
+    WHEN REGEXP_CONTAINS(biz, r'소프트웨어|프로그래밍|시스템통합|데이터|인터넷|포털|클라우드|플랫폼|정보통신|모바일') THEN 'IT/소프트웨어'
+    WHEN REGEXP_CONTAINS(biz, r'전자상거래|소매|도매|유통|판매|프랜차이즈') THEN '커머스'
+    WHEN REGEXP_CONTAINS(biz, r'광고|마케팅|디자인|홍보') THEN '광고/마케팅'
+    WHEN REGEXP_CONTAINS(biz, r'미디어|콘텐츠|출판|영화|방송|음악|엔터|공연') THEN '콘텐츠/미디어'
+    WHEN REGEXP_CONTAINS(biz, r'컨설팅|자문|회계|법무|인력') THEN '경영/전문서비스'
+    WHEN REGEXP_CONTAINS(biz, r'화장품|뷰티|피부|패션|의류') THEN '패션/뷰티'
+    WHEN REGEXP_CONTAINS(biz, r'교육|학원|학습') THEN '교육'
+    WHEN REGEXP_CONTAINS(biz, r'식품|식료|음식|커피|양식|한식|농|주류') THEN 'F&B/식품'
+    WHEN REGEXP_CONTAINS(biz, r'제조|로봇|기계|금속') THEN '제조/하드웨어'
+    WHEN REGEXP_CONTAINS(biz, r'건축|건설|부동산|인테리어') THEN '건설/부동산'
+    WHEN REGEXP_CONTAINS(biz, r'의약|바이오|의료') THEN '헬스케어/바이오'
+    WHEN REGEXP_CONTAINS(biz, r'체력|스포츠|피트니스') THEN '피트니스/스포츠'
+    WHEN REGEXP_CONTAINS(biz, r'호텔|여행|숙박|관광') THEN '여행/숙박'
+    WHEN REGEXP_CONTAINS(biz, r'에너지|태양|신재생|환경') THEN '환경/에너지'
+    WHEN REGEXP_CONTAINS(biz, r'물류|운송|배송|택배') THEN '물류'
+    WHEN REGEXP_CONTAINS(biz, r'금융|보험|투자') THEN '금융/핀테크'
+    ELSE '기타'
+  END`;
+
 // ─── QUERIES ───
 
 async function fetchFunnelData() {
@@ -159,13 +205,11 @@ async function fetchUsageData() {
 
 async function fetchIndustryData() {
   console.log('  [3/7] INDUSTRY_DATA 조회 중...');
-  // business_items_innoforest: 혁신의숲 업종 분류 (comma-separated)
-  // 패션 + 뷰티/화장품 → 패션/뷰티/화장품 으로 병합
-  // 첫결제/M1/M2/M3 모든 메트릭 포함
+  // 통합 업종 분류: innoforest 있으면 첫 카테고리→통합 매핑, 없으면 business_items 키워드 매핑
   const rows = await query(`
     WITH base AS (
       SELECT
-        TRIM(category) AS industry,
+        u.corp_id,
         CASE WHEN u.m0_normal_amount > 0 OR u.m1_normal_amount > 0 OR u.m2_normal_amount > 0 OR u.m3_normal_amount > 0 THEN 1 ELSE 0 END AS has_fs,
         ROUND(SAFE_MULTIPLY(u.m1_use_limit_rate, 100), 1) AS m1_val,
         CASE WHEN u.m1_use_limit_rate >= 0.2 THEN 1 ELSE 0 END AS m1_hit,
@@ -175,21 +219,20 @@ async function fetchIndustryData() {
         CASE WHEN u.m2_use_limit_rate IS NOT NULL THEN 1 ELSE 0 END AS m2_ok,
         ROUND(SAFE_MULTIPLY(u.m3_use_limit_rate, 100), 1) AS m3_val,
         CASE WHEN u.m3_use_limit_rate >= 0.45 THEN 1 ELSE 0 END AS m3_hit,
-        CASE WHEN u.m3_use_limit_rate IS NOT NULL THEN 1 ELSE 0 END AS m3_ok
+        CASE WHEN u.m3_use_limit_rate IS NOT NULL THEN 1 ELSE 0 END AS m3_ok,
+        TRIM(SPLIT(c.business_items_innoforest, ',')[SAFE_OFFSET(0)]) AS cat,
+        COALESCE(c.business_items, '') AS biz,
+        CASE WHEN c.business_items_innoforest IS NOT NULL AND c.business_items_innoforest != '' THEN TRUE ELSE FALSE END AS has_inno
       FROM \`gowid-prd.mart_card.export_card_issuance_initial_usage\` u
-      JOIN \`gowid-prd.dw_dimension.corporation\` c ON u.corp_id = c.corp_id
-      CROSS JOIN UNNEST(SPLIT(c.business_items_innoforest, ',')) AS category
+      LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON u.corp_id = c.corp_id
       WHERE u.first_card_issued_at >= '2025-01-01'
-        AND c.business_items_innoforest IS NOT NULL
-        AND c.business_items_innoforest != ''
     ),
-    merged AS (
-      SELECT
+    classified AS (
+      SELECT *,
         CASE
-          WHEN industry IN ('패션', '뷰티/화장품') THEN '패션/뷰티/화장품'
-          ELSE industry
-        END AS name,
-        has_fs, m1_val, m1_hit, m1_ok, m2_val, m2_hit, m2_ok, m3_val, m3_hit, m3_ok
+          WHEN has_inno THEN ${INNO_TO_UNIFIED}
+          ELSE ${BIZ_TO_UNIFIED}
+        END AS name
       FROM base
     )
     SELECT
@@ -202,7 +245,7 @@ async function fetchIndustryData() {
       CASE WHEN SUM(m2_ok) > 0 THEN ROUND(SUM(m2_hit) * 100.0 / SUM(m2_ok), 1) ELSE NULL END AS m2_hit,
       CASE WHEN SUM(m3_ok) > 0 THEN ROUND(AVG(CASE WHEN m3_ok = 1 THEN m3_val END), 1) ELSE NULL END AS m3,
       CASE WHEN SUM(m3_ok) > 0 THEN ROUND(SUM(m3_hit) * 100.0 / SUM(m3_ok), 1) ELSE NULL END AS m3_hit
-    FROM merged
+    FROM classified
     GROUP BY 1
     HAVING COUNT(*) >= 3
     ORDER BY name
@@ -430,9 +473,7 @@ async function fetchFunnelDetail() {
 
 async function fetchCohortIndustry() {
   console.log('  [8/8] COHORT_INDUSTRY 조회 중...');
-  // card_application_funnel 테이블 기준 (FUNNEL_DATA card_issued와 동일 소스)
-  // 첫 번째 업종만 사용하여 법인당 1건 카운트
-  // LEFT JOIN으로 업종 미분류 법인도 포함
+  // 통합 업종 분류: innoforest 첫 카테고리 → 통합명, 없으면 business_items → 통합명
   const rows = await query(`
     WITH issued AS (
       SELECT
@@ -449,22 +490,17 @@ async function fetchCohortIndustry() {
         i.corp_id,
         i.granted_limit,
         c.headcount,
-        CASE
-          WHEN c.business_items_innoforest IS NULL OR c.business_items_innoforest = '' THEN '기타/미분류'
-          ELSE TRIM(SPLIT(c.business_items_innoforest, ',')[OFFSET(0)])
-        END AS industry
+        TRIM(SPLIT(c.business_items_innoforest, ',')[SAFE_OFFSET(0)]) AS cat,
+        COALESCE(c.business_items, '') AS biz,
+        CASE WHEN c.business_items_innoforest IS NOT NULL AND c.business_items_innoforest != '' THEN TRUE ELSE FALSE END AS has_inno
       FROM issued i
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON i.corp_id = c.corp_id
     ),
-    merged AS (
-      SELECT
-        cohort,
-        corp_id,
-        granted_limit,
-        headcount,
+    classified AS (
+      SELECT cohort, corp_id, granted_limit, headcount,
         CASE
-          WHEN industry IN ('패션', '뷰티/화장품') THEN '패션/뷰티/화장품'
-          ELSE industry
+          WHEN has_inno THEN ${INNO_TO_UNIFIED}
+          ELSE ${BIZ_TO_UNIFIED}
         END AS name
       FROM base
     )
@@ -474,7 +510,7 @@ async function fetchCohortIndustry() {
       COUNT(*) AS cnt,
       ROUND(AVG(granted_limit / 10000)) AS avg_limit,
       ROUND(AVG(headcount), 1) AS avg_hc
-    FROM merged
+    FROM classified
     GROUP BY 1, 2
     ORDER BY cohort, cnt DESC
   `);
@@ -490,8 +526,7 @@ async function fetchCohortIndustry() {
 
 async function fetchCohortIndustryByIssued() {
   console.log('  [9/9] COHORT_INDUSTRY_ISSUED 조회 중...');
-  // 발급월 기준: 언제 신청했든 해당 월에 카드 발급 완료된 건
-  // export_card_issuance_initial_usage 테이블 사용 (사용자 확인 데이터와 동일 소스)
+  // 발급월 기준, 통합 업종 분류
   const rows = await query(`
     WITH issued AS (
       SELECT
@@ -507,19 +542,17 @@ async function fetchCohortIndustryByIssued() {
         i.corp_id,
         i.granted_limit,
         c.headcount,
-        CASE
-          WHEN c.business_items_innoforest IS NULL OR c.business_items_innoforest = '' THEN '기타/미분류'
-          ELSE TRIM(SPLIT(c.business_items_innoforest, ',')[OFFSET(0)])
-        END AS industry
+        TRIM(SPLIT(c.business_items_innoforest, ',')[SAFE_OFFSET(0)]) AS cat,
+        COALESCE(c.business_items, '') AS biz,
+        CASE WHEN c.business_items_innoforest IS NOT NULL AND c.business_items_innoforest != '' THEN TRUE ELSE FALSE END AS has_inno
       FROM issued i
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON i.corp_id = c.corp_id
     ),
-    merged AS (
-      SELECT
-        cohort, corp_id, granted_limit, headcount,
+    classified AS (
+      SELECT cohort, corp_id, granted_limit, headcount,
         CASE
-          WHEN industry IN ('패션', '뷰티/화장품') THEN '패션/뷰티/화장품'
-          ELSE industry
+          WHEN has_inno THEN ${INNO_TO_UNIFIED}
+          ELSE ${BIZ_TO_UNIFIED}
         END AS name
       FROM base
     )
@@ -529,7 +562,7 @@ async function fetchCohortIndustryByIssued() {
       COUNT(*) AS cnt,
       ROUND(AVG(granted_limit / 10000)) AS avg_limit,
       ROUND(AVG(headcount), 1) AS avg_hc
-    FROM merged
+    FROM classified
     GROUP BY 1, 2
     ORDER BY cohort, cnt DESC
   `);
