@@ -577,8 +577,10 @@ function updateTimestamp(html) {
 async function main() {
   console.log('🔄 대시보드 데이터 업데이트 시작\n');
 
-  // ⚠ FUNNEL_DATA, USAGE_DATA, TIER_DATA, COMPARE_DATA는 수작업 보정 데이터이므로 업데이트하지 않음
-  const [industry, corpDetail, funnelDetail, cohortIndustry, cohortIndustryIssued] = await Promise.all([
+  // ⚠ TIER_DATA, COMPARE_DATA는 수작업 보정 데이터이므로 업데이트하지 않음
+  const [funnel, usage, industry, corpDetail, funnelDetail, cohortIndustry, cohortIndustryIssued] = await Promise.all([
+    fetchFunnelData(),
+    fetchUsageData(),
     fetchIndustryData(),
     fetchCorpDetail(),
     fetchFunnelDetail(),
@@ -587,16 +589,20 @@ async function main() {
   ]);
 
   console.log(`\n📊 조회 완료:`);
+  console.log(`  FUNNEL_DATA: ${funnel.length}개월`);
+  console.log(`  USAGE_DATA: ${usage.length}개월`);
   console.log(`  INDUSTRY_DATA: ${industry.length}개 업종`);
   console.log(`  CORP_DETAIL: ${corpDetail.length}개 법인`);
   console.log(`  FUNNEL_DETAIL: ${funnelDetail.length}개 법인`);
   console.log(`  COHORT_INDUSTRY: ${cohortIndustry.length}개 코호트×업종 (신청월 기준)`);
   console.log(`  COHORT_INDUSTRY_ISSUED: ${cohortIndustryIssued.length}개 코호트×업종 (발급월 기준)`);
-  console.log(`  (FUNNEL_DATA, USAGE_DATA, TIER_DATA, COMPARE_DATA는 보정 데이터 — 건너뜀)`);
+  console.log(`  (TIER_DATA, COMPARE_DATA는 보정 데이터 — 건너뜀)`);
 
   console.log('\n📝 HTML 파일 업데이트 중...');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
 
+  html = replaceConst(html, 'FUNNEL_DATA', funnel);
+  html = replaceConst(html, 'USAGE_DATA', usage);
   html = replaceConst(html, 'INDUSTRY_DATA', industry);
   html = replaceConst(html, 'CORP_DETAIL', corpDetail);
   html = replaceConst(html, 'FUNNEL_DETAIL', funnelDetail);
