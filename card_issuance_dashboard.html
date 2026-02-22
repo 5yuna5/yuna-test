@@ -1228,15 +1228,10 @@
     </div>
   </div>
 
-  <!-- A-2: Insight -->
-  <div class="insight-card" onclick="this.classList.toggle('open')">
-    <h3>핵심 병목 인사이트 <span class="insight-toggle">&#x25BC;</span></h3>
-    <ul>
-      <li><strong>1위 병목: 한도산출 0원</strong> — 한도산출 완료 중 상당 비율이 0원으로 발급 자체가 불가. 특히 26년01월 133건/194건(68.6%) 급증, 대량 유입 대비 한도 산출 품질 저하 주의</li>
-      <li><strong>2위 병목: 도입신청서 승인</strong> — 승인율이 100%가 아닌 구간에서 심사 탈락 발생. 신청서 품질 향상 및 예비 심사 가이드 제공 필요</li>
-      <li><strong>3위 병목: 카드발급신청시작 → 완료</strong> — 한도산출 이후 발급신청시작까지 이탈 및 신청서 작성 중 이탈이 복합적으로 발생</li>
-      <li>🔍 <strong>26년01월 한도0원 급증</strong> — limit_zero 133건으로 전월 대비 3배 급증. 유입 채널 품질 점검 및 한도산출 로직 재검토 권고</li>
-    </ul>
+  <!-- A-2: Insight (동적 생성) -->
+  <div class="insight-card" onclick="this.classList.toggle('open')" id="bottleneckInsight">
+    <h3 id="bottleneckInsightTitle">핵심 병목 인사이트 <span class="insight-toggle">&#x25BC;</span></h3>
+    <ul id="bottleneckInsightList"></ul>
   </div>
 
   <!-- A-3: Monthly Table (collapsible) -->
@@ -3618,12 +3613,94 @@ function buildPartAIssuedBar(filtered) {
 /* ══════════════════════════════════════════
    BUILD PART A (FILTER-SENSITIVE)
 ══════════════════════════════════════════ */
+function buildBottleneckInsight(filtered) {
+  const total = sumData(filtered);
+  const periodLabel = filtered.length === 1
+    ? filtered[0].label
+    : filtered[0].label + ' ~ ' + filtered[filtered.length - 1].label;
+
+  // 병목 단계별 이탈 계산
+  const steps = [
+    { name: '도입신청→승인', from: 'submitted', to: 'approved', drop: total.submitted - total.approved, den: total.submitted },
+    { name: '승인→회원가입', from: 'approved', to: 'signup', drop: total.approved - total.signup, den: total.approved },
+    { name: '회원가입→입회시작', from: 'signup', to: 'limit_start', drop: total.signup - total.limit_start, den: total.signup },
+    { name: '한도산출→유효(0원 제외)', from: 'limit_result_any', to: 'limit_nonzero', drop: total.limit_zero, den: total.limit_result_any },
+    { name: '카드정보입력→발급신청', from: 'card_info', to: 'card_applied', drop: total.card_info - total.card_applied, den: total.card_info },
+    { name: '발급신청→발급완료', from: 'card_applied', to: 'card_issued', drop: total.card_applied - total.card_issued, den: total.card_applied },
+  ];
+
+  // 이탈률 계산 후 정렬
+  steps.forEach(s => { s.rate = s.den > 0 ? Math.round(s.drop / s.den * 1000) / 10 : 0; });
+  const ranked = steps.filter(s => s.drop > 0).sort((a, b) => b.rate - a.rate);
+
+  const items = [];
+
+  // Top 3 병목
+  ranked.slice(0, 3).forEach((s, i) => {
+    items.push(`<li><strong>${i + 1}위 병목: ${s.name}</strong> — 이탈률 ${s.rate}% (${s.drop.toLocaleString()}건 탈락, ${s.den.toLocaleString()}건 중)</li>`);
+  });
+
+  // 월별 특이사항 탐지 (최근 월 vs 이전 월 비교)
+  if (filtered.length >= 2) {
+    const latest = filtered[filtered.length - 1];
+    const prev = filtered[filtered.length - 2];
+
+    // 한도0원 급증 체크
+    if (latest.limit_zero > 0 && prev.limit_zero > 0) {
+      const ratio = latest.limit_zero / prev.limit_zero;
+      const latestZeroRate = latest.limit_result_any > 0 ? Math.round(latest.limit_zero / latest.limit_result_any * 1000) / 10 : 0;
+      if (ratio >= 1.5) {
+        items.push(`<li><strong>${latest.label} 한도0원 급증</strong> — ${latest.limit_zero}건/${latest.limit_result_any}건(${latestZeroRate}%), 전월 대비 ${ratio.toFixed(1)}배 증가. 유입 채널 품질 점검 필요</li>`);
+      }
+    }
+
+    // 전환율 급락 체크
+    const latestConv = latest.submitted > 0 ? latest.card_issued / latest.submitted * 100 : 0;
+    const prevConv = prev.submitted > 0 ? prev.card_issued / prev.submitted * 100 : 0;
+    if (prevConv > 0 && latestConv < prevConv * 0.7) {
+      items.push(`<li><strong>${latest.label} 전환율 급락</strong> — ${Math.round(latestConv * 10) / 10}% (전월 ${Math.round(prevConv * 10) / 10}%). 퍼널 단계별 점검 필요</li>`);
+    }
+
+    // 신청 급증/급감 체크
+    if (prev.submitted > 0) {
+      const submitRatio = latest.submitted / prev.submitted;
+      if (submitRatio >= 2) {
+        items.push(`<li><strong>${latest.label} 신청 급증</strong> — ${latest.submitted}건 (전월 ${prev.submitted}건 대비 ${submitRatio.toFixed(1)}배). 대량 유입 품질 모니터링 필요</li>`);
+      } else if (submitRatio <= 0.5) {
+        items.push(`<li><strong>${latest.label} 신청 급감</strong> — ${latest.submitted}건 (전월 ${prev.submitted}건 대비 ${Math.round(submitRatio * 100)}%). 유입 채널 점검 필요</li>`);
+      }
+    }
+  }
+
+  // 단일 월인 경우 해당 월 자체 분석
+  if (filtered.length === 1) {
+    const m = filtered[0];
+    const zeroRate = m.limit_result_any > 0 ? Math.round(m.limit_zero / m.limit_result_any * 1000) / 10 : 0;
+    if (zeroRate > 50) {
+      items.push(`<li><strong>한도0원 비율 ${zeroRate}%</strong> — ${m.limit_zero}건/${m.limit_result_any}건. 한도산출 로직 재검토 권고</li>`);
+    }
+    const convRate = m.submitted > 0 ? Math.round(m.card_issued / m.submitted * 1000) / 10 : 0;
+    if (convRate < 15) {
+      items.push(`<li><strong>전환율 ${convRate}%</strong> — 전체 평균 대비 낮은 수준. 해당 월 유입 품질 확인 필요</li>`);
+    }
+  }
+
+  if (items.length === 0) {
+    items.push('<li>선택 기간에 유의미한 병목이 없습니다.</li>');
+  }
+
+  document.getElementById('bottleneckInsightTitle').innerHTML =
+    `핵심 병목 인사이트 <span style="font-size:12px;font-weight:400;color:var(--text-muted);">(${periodLabel})</span> <span class="insight-toggle">&#x25BC;</span>`;
+  document.getElementById('bottleneckInsightList').innerHTML = items.join('');
+}
+
 function buildPartA(filtered) {
   const total = sumData(filtered);
   buildPartAIssuedBar(filtered);
   buildKPIRowA(total, filtered);
   buildFunnelChart(total);
   buildTrendChart(filtered);
+  buildBottleneckInsight(filtered);
   buildMonthlyTable(filtered);
 }
 
