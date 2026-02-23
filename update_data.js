@@ -181,7 +181,9 @@ async function fetchUsageData() {
       CASE WHEN SUM(m3_eligible) > 0 THEN ROUND(SUM(m3_hit_flag) * 100.0 / SUM(m3_eligible), 1) ELSE NULL END AS m3_hit,
       SUM(m1_hit_flag) AS m1_cnt,
       SUM(m2_hit_flag) AS m2_cnt,
-      SUM(m3_hit_flag) AS m3_cnt
+      SUM(m3_hit_flag) AS m3_cnt,
+      CAST(SUM(normal_granted_limit) AS INT64) AS sum_limit,
+      CAST(SUM(COALESCE(m0_normal_amount, 0) + COALESCE(m1_normal_amount, 0) + COALESCE(m2_normal_amount, 0) + COALESCE(m3_normal_amount, 0)) AS INT64) AS sum_spend
     FROM base
     GROUP BY 1 ORDER BY 1
   `);
@@ -200,6 +202,8 @@ async function fetchUsageData() {
     m1_cnt: Number(r.m1_cnt || 0),
     m2_cnt: Number(r.m2_cnt || 0),
     m3_cnt: Number(r.m3_cnt || 0),
+    sum_limit: Number(r.sum_limit || 0),
+    sum_spend: Number(r.sum_spend || 0),
   }));
 }
 
