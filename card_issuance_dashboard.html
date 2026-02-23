@@ -4025,9 +4025,8 @@ function buildAssessments(filtered, filteredUsage) {
   if (fsRate >= 90) bSkips.push('첫결제율 90%+ 달성 — 첫결제 유도 캠페인 추가 투자 불필요');
   if (m1Hit >= 50) bSkips.push('M1 달성률 50%+ — M1 개선보다 M2/M3 리텐션에 집중');
 
-  // 이번달 입회 고객 최초부여한도 / 사용금액
-  const curMonth = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0');
-  const curCohort = usageData.find(r => r.cohort === curMonth);
+  // 최신 코호트 입회 고객 최초부여한도 / 사용금액 (필터 연동)
+  const curCohort = usageData.length > 0 ? usageData[usageData.length - 1] : null;
   const fmtWon = v => {
     if (!v) return '0원';
     if (v >= 100000000) return (v / 100000000).toFixed(1).replace(/\.0$/, '') + '억원';
@@ -4047,10 +4046,10 @@ function buildAssessments(filtered, filteredUsage) {
         text: m1Hit < 30
           ? `M1 달성률이 ${m1Hit}%로 저조합니다. 발급 후 첫 한 달이 <strong>사용 습관 형성의 골든타임</strong>인데 이를 놓치고 있습니다.`
           : `M1 달성률 ${m1Hit}%는 ${m1Hit >= 45 ? '목표 근접' : '개선 여지 있음'}. M1→M2 이탈을 줄이는 것이 다음 핵심 과제입니다.` },
-      { type: 'status', label: '이번달 입회',
+      { type: 'status', label: '최신 코호트',
         text: curCohort
-          ? `이번달(${curCohort.label}) 입회 <strong>${curCohort.total}사</strong>: ${curLimitText}. ${curSpendText}. 한도 대비 사용률 <strong>${curUtilRate}%</strong>.`
-          : '이번달 입회 데이터가 아직 없습니다.' },
+          ? `${curCohort.label} 입회 <strong>${curCohort.total}사</strong>: ${curLimitText}. ${curSpendText}. 한도 대비 사용률 <strong>${curUtilRate}%</strong>.`
+          : '해당 기간 입회 데이터가 없습니다.' },
       { type: 'conclusion', label: '결론',
         text: bSignal === 'red'
           ? `<strong>집중 개입 필요.</strong> D+3 자동 리마인더 + D+7 전화 컨택 프로세스를 즉시 가동. 미결제 법인 리스트를 매일 갱신.`
