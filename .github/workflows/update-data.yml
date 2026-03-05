@@ -1,0 +1,37 @@
+name: Update Dashboard Data
+
+on:
+  schedule:
+    # 매일 한국시간 오전 9시 (UTC 0시)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 수동 실행도 가능
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Write BigQuery credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          echo '${{ secrets.BIGQUERY_KEY_JSON }}' > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+
+      - name: Update data
+        run: node update_data.js
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || (git add card_issuance_dashboard.html && git commit -m "chore: daily data update $(date +%Y-%m-%d)" && git push)
