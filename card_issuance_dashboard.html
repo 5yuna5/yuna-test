@@ -1171,6 +1171,24 @@
     </div>
     <div class="modal-body">
       <div class="changelog-entry">
+        <div class="changelog-date">2026-03-05</div>
+        <div class="changelog-tag tag-major">Major Update</div>
+        <div class="changelog-title">대시보드 v4.0 -- UX/분석 10대 개선</div>
+        <ul>
+          <li><strong>[데이터 신선도]</strong> 푸터에 상대 시간 표시 + 색상 배지 (24h 이내 초록, 1-3일 주황, 3일 초과 빨강)</li>
+          <li><strong>[필터 자동적용]</strong> 적용 버튼 제거, 드롭다운 변경 시 즉시 반영으로 클릭 1회 절감</li>
+          <li><strong>[검색 디바운스]</strong> 법인 상세 모달 검색에 300ms 디바운스 적용 (대량 데이터 성능 개선)</li>
+          <li><strong>[테마 FOUC 제거]</strong> 다크/라이트 전환 시 화면 깜빡임 방지 (head 인라인 스크립트)</li>
+          <li><strong>[차트 드릴다운]</strong> 업종별 차트 바 클릭 → 해당 업종 법인 목록 팝업 바로 열림</li>
+          <li><strong>[코호트 비교 뷰]</strong> Part B에 두 코호트 선택 → 나란히 delta 비교 기능 추가</li>
+          <li><strong>[이상 감지 알림]</strong> M1 급락(>8%p), 한도0원(>40%), 전환율 급락(>10%p) 자동 알럿 배너</li>
+          <li><strong>[SLA 추적]</strong> 주간 요약에 예상 발급 소요일 표시 + 향후 타임스탬프 기반 SLA 예고</li>
+          <li><strong>[모바일 대응]</strong> 햄버거 메뉴, 접이식 필터바, 반응형 그리드 (768px/480px 브레이크포인트)</li>
+          <li><strong>[처방형 인사이트]</strong> 병목 구간별 구체적 액션 아이템 추가 (현상 기술 → 행동 제안)</li>
+          <li><strong>[자동 업데이트]</strong> GitHub Actions 매일 오전 9시(KST) 자동 데이터 갱신 설정</li>
+        </ul>
+      </div>
+      <div class="changelog-entry">
         <div class="changelog-date">2026-02-22</div>
         <div class="changelog-tag tag-major">Data Update</div>
         <div class="changelog-title">업종 분류 통합 -- 기타/미분류 72% → 3.6% 세분화</div>
