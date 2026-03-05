@@ -475,8 +475,57 @@ async function fetchFunnelDetail() {
   }));
 }
 
+async function fetchSLAData() {
+  console.log('  [8/10] SLA_DATA 조회 중...');
+  const rows = await query(`
+    WITH raw AS (
+      SELECT
+        FORMAT_DATE('%Y-%m', card_application_submitted_at) AS month,
+        GREATEST(days_card_application_submitted_to_approved, 0) AS d_submit_approve,
+        GREATEST(DATETIME_DIFF(signup_at, card_application_approved_at, DAY), 0) AS d_approve_signup,
+        CASE WHEN first_limit_result_at IS NOT NULL AND signup_at IS NOT NULL
+             THEN GREATEST(DATETIME_DIFF(first_limit_result_at, signup_at, DAY), 0) ELSE NULL END AS d_signup_limit,
+        CASE WHEN first_card_issued_at IS NOT NULL AND first_limit_result_at IS NOT NULL
+             THEN GREATEST(DATETIME_DIFF(first_card_issued_at, first_limit_result_at, DAY), 0) ELSE NULL END AS d_limit_issued,
+        GREATEST(days_applied_to_issued, 0) AS d_applied_issued,
+        GREATEST(days_issued_to_spend, 0) AS d_issued_spend,
+        GREATEST(DATETIME_DIFF(first_card_issued_at, card_application_submitted_at, DAY), 0) AS d_total
+      FROM \`gowid-prd.mart_limit_application.card_application_funnel\`
+      WHERE card_application_submitted_at >= '2025-01-01'
+        AND first_card_issued_at IS NOT NULL
+    )
+    SELECT
+      month,
+      COUNT(*) AS total,
+      ROUND(AVG(d_submit_approve), 1) AS submit_to_approve,
+      ROUND(AVG(d_approve_signup), 1) AS approve_to_signup,
+      ROUND(AVG(d_signup_limit), 1) AS signup_to_limit,
+      ROUND(AVG(d_limit_issued), 1) AS limit_to_issued,
+      ROUND(AVG(d_applied_issued), 1) AS applied_to_issued,
+      ROUND(AVG(d_issued_spend), 1) AS issued_to_spend,
+      ROUND(AVG(d_total), 1) AS total_days,
+      ROUND(APPROX_QUANTILES(d_total, 2)[OFFSET(1)], 1) AS median_days
+    FROM raw
+    GROUP BY 1
+    ORDER BY 1
+  `);
+  return rows.map(r => ({
+    month: r.month,
+    label: fmtLabel(r.month),
+    total: Number(r.total),
+    submit_to_approve: r.submit_to_approve != null ? Number(r.submit_to_approve) : null,
+    approve_to_signup: r.approve_to_signup != null ? Number(r.approve_to_signup) : null,
+    signup_to_limit: r.signup_to_limit != null ? Number(r.signup_to_limit) : null,
+    limit_to_issued: r.limit_to_issued != null ? Number(r.limit_to_issued) : null,
+    applied_to_issued: r.applied_to_issued != null ? Number(r.applied_to_issued) : null,
+    issued_to_spend: r.issued_to_spend != null ? Number(r.issued_to_spend) : null,
+    total_days: r.total_days != null ? Number(r.total_days) : null,
+    median_days: r.median_days != null ? Number(r.median_days) : null,
+  }));
+}
+
 async function fetchCohortIndustry() {
-  console.log('  [8/8] COHORT_INDUSTRY 조회 중...');
+  console.log('  [9/10] COHORT_INDUSTRY 조회 중...');
   // 통합 업종 분류: innoforest 첫 카테고리 → 통합명, 없으면 business_items → 통합명
   const rows = await query(`
     WITH issued AS (
@@ -529,7 +578,7 @@ async function fetchCohortIndustry() {
 }
 
 async function fetchCohortIndustryByIssued() {
-  console.log('  [9/9] COHORT_INDUSTRY_ISSUED 조회 중...');
+  console.log('  [10/10] COHORT_INDUSTRY_ISSUED 조회 중...');
   // 발급월 기준, 통합 업종 분류
   const rows = await query(`
     WITH issued AS (
@@ -615,12 +664,13 @@ async function main() {
   console.log('🔄 대시보드 데이터 업데이트 시작\n');
 
   // ⚠ TIER_DATA, COMPARE_DATA는 수작업 보정 데이터이므로 업데이트하지 않음
-  const [funnel, usage, industry, corpDetail, funnelDetail, cohortIndustry, cohortIndustryIssued] = await Promise.all([
+  const [funnel, usage, industry, corpDetail, funnelDetail, sla, cohortIndustry, cohortIndustryIssued] = await Promise.all([
     fetchFunnelData(),
     fetchUsageData(),
     fetchIndustryData(),
     fetchCorpDetail(),
     fetchFunnelDetail(),
+    fetchSLAData(),
     fetchCohortIndustry(),
     fetchCohortIndustryByIssued(),
   ]);
@@ -631,6 +681,7 @@ async function main() {
   console.log(`  INDUSTRY_DATA: ${industry.length}개 업종`);
   console.log(`  CORP_DETAIL: ${corpDetail.length}개 법인`);
   console.log(`  FUNNEL_DETAIL: ${funnelDetail.length}개 법인`);
+  console.log(`  SLA_DATA: ${sla.length}개월`);
   console.log(`  COHORT_INDUSTRY: ${cohortIndustry.length}개 코호트×업종 (신청월 기준)`);
   console.log(`  COHORT_INDUSTRY_ISSUED: ${cohortIndustryIssued.length}개 코호트×업종 (발급월 기준)`);
   console.log(`  (TIER_DATA, COMPARE_DATA는 보정 데이터 — 건너뜀)`);
@@ -643,6 +694,7 @@ async function main() {
   html = replaceConst(html, 'INDUSTRY_DATA', industry);
   html = replaceConst(html, 'CORP_DETAIL', corpDetail);
   html = replaceConst(html, 'FUNNEL_DETAIL', funnelDetail);
+  html = replaceConst(html, 'SLA_DATA', sla);
   html = replaceConst(html, 'COHORT_INDUSTRY', cohortIndustry);
   html = replaceConst(html, 'COHORT_INDUSTRY_ISSUED', cohortIndustryIssued);
   html = updateTimestamp(html);
