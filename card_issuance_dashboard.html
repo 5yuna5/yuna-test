@@ -35,7 +35,7 @@
       --section-gap: 40px;
     }
 
-    body.light-mode {
+    html.light-mode, body.light-mode {
       --bg: #f1f5f9;
       --bg-secondary: #e8edf4;
       --filter-bg: #eef2f7;
@@ -892,7 +892,67 @@
     .kpi-grid .card[data-popup] { cursor: pointer; transition: box-shadow 0.2s, transform 0.15s; }
     .kpi-grid .card[data-popup]:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
     .kpi-grid .card[data-popup]:active { transform: translateY(0); }
+
+    /* ─── DATA STALENESS BADGE ─── */
+    .data-freshness { display: inline-flex; align-items: center; gap: 6px; }
+    .freshness-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 600; line-height: 1.5;
+    }
+    .freshness-badge.fresh { background: rgba(16,185,129,0.15); color: #10b981; }
+    .freshness-badge.stale { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .freshness-badge.old { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+    /* ─── COHORT COMPARE VIEW ─── */
+    .cohort-compare-wrap { display:none; margin-top:12px; padding:16px; background:var(--card); border-radius:var(--radius); border:1px solid var(--border); }
+    .cohort-compare-wrap.active { display:block; }
+    .cohort-compare-header { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+    .cohort-compare-header select { background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px; color:var(--text); font-size:13px; }
+    .cohort-compare-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+    .cohort-delta-card { background:var(--card-elevated); border-radius:var(--radius-sm); padding:12px; border:1px solid var(--border); }
+    .cohort-delta-card .delta-label { font-size:11px; color:var(--text-muted); margin-bottom:4px; }
+    .cohort-delta-card .delta-values { display:flex; gap:8px; align-items:baseline; }
+    .cohort-delta-card .delta-val { font-size:18px; font-weight:700; color:var(--text-strong); }
+    .cohort-delta-card .delta-change { font-size:12px; font-weight:600; }
+    .cohort-delta-card .delta-change.pos { color:var(--success); }
+    .cohort-delta-card .delta-change.neg { color:var(--accent); }
+
+    /* ─── HAMBURGER MENU (mobile) ─── */
+    .hamburger-btn {
+      display: none; background: transparent; border: 1px solid var(--border-strong);
+      border-radius: 6px; padding: 6px 8px; cursor: pointer; color: var(--text);
+      font-size: 18px; line-height: 1;
+    }
+
+    /* ─── MOBILE RESPONSIVE ─── */
+    @media (max-width: 768px) {
+      header { padding: 10px 16px; }
+      .header-left h1 { font-size: 13px; }
+      .header-left p { display: none; }
+      .header-right { gap: 4px !important; }
+      .header-right .header-btn { display: none; }
+      .hamburger-btn { display: inline-flex; }
+      .header-right .theme-toggle span#themeLabel { display: none; }
+
+      .filter-bar { padding: 8px 16px; }
+      .filter-bar.collapsed .filter-hide-mobile { display: none; }
+      .filter-bar label { font-size: 12px; }
+
+      main { padding: 12px !important; }
+      .two-col { grid-template-columns: 1fr !important; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+      .compare-grid { grid-template-columns: 1fr !important; }
+      .section-header h2 { font-size: 15px; }
+      .card { padding: 14px; }
+
+      footer { padding: 16px !important; font-size: 11px; }
+    }
+    @media (max-width: 480px) {
+      .kpi-grid { grid-template-columns: 1fr !important; }
+      header { flex-wrap: wrap; gap: 8px; }
+    }
   </style>
+  <script>(function(){var t=localStorage.getItem('theme');if(t==='light')document.documentElement.classList.add('light-mode');})()</script>
 </head>
 <body>
 
@@ -988,7 +1048,8 @@
     <a href="#partIndustry" class="nav-link">C. 업종별 인사이트</a>
     <a href="#partC" class="nav-link">D. 운영 액션추천</a>
   </div>
-  <div class="header-right">
+  <div class="header-right" style="display:flex;align-items:center;gap:8px;">
+    <button class="hamburger-btn" onclick="toggleMobileMenu()" title="메뉴">&#x2630;</button>
     <button class="header-btn" onclick="openUpdateModal()" title="데이터 업데이트" style="border-color:var(--success);color:var(--success);">&#x1F504; 업데이트</button>
     <button class="header-btn" onclick="openGuide()" title="대시보드 가이드">&#x1F4D6; 가이드</button>
     <button class="header-btn" onclick="openChangelog()" title="수정 히스토리">&#x1F4DD; 히스토리</button>
@@ -1165,10 +1226,9 @@
 <!-- ─── FILTER BAR ─── -->
 <div class="filter-bar">
   <label>조회 기간</label>
-  <select id="filterStart"></select>
+  <select id="filterStart" onchange="applyFilter()"></select>
   <span class="filter-sep">~</span>
-  <select id="filterEnd"></select>
-  <button class="filter-btn" onclick="applyFilter()">적용</button>
+  <select id="filterEnd" onchange="applyFilter()"></select>
   <button class="filter-quick active" id="btnAll" onclick="setQuick('all')">전체 기간</button>
   <button class="filter-quick" id="btn6m" onclick="setQuick('6m')">최근 6개월</button>
   <span class="filter-info" id="filterInfo"></span>
@@ -1308,6 +1368,16 @@
     <button class="compare-btn" data-metric="m1" onclick="switchCompareMetric('m1')">M1</button>
     <button class="compare-btn" data-metric="m2" onclick="switchCompareMetric('m2')">M2</button>
     <button class="compare-btn" data-metric="m3" onclick="switchCompareMetric('m3')">M3</button>
+    <button class="compare-btn" id="btnCohortCompare" onclick="toggleCohortCompare()" style="margin-left:auto;border-color:var(--info);color:var(--info);">코호트 비교</button>
+  </div>
+  <div class="cohort-compare-wrap" id="cohortCompareWrap">
+    <div class="cohort-compare-header">
+      <label style="font-size:12px;color:var(--text-muted);">비교:</label>
+      <select id="cohortCompareA" onchange="runCohortCompare()"></select>
+      <span style="color:var(--text-muted);">vs</span>
+      <select id="cohortCompareB" onchange="runCohortCompare()"></select>
+    </div>
+    <div class="cohort-compare-grid" id="cohortCompareGrid"></div>
   </div>
   <div class="compare-grid" id="compareGrid"></div>
 
@@ -1439,7 +1509,7 @@
         <span class="modal-sub" id="modalSub"></span>
       </div>
       <div class="modal-actions">
-        <input type="text" class="modal-search" id="modalSearch" placeholder="법인명 검색..." oninput="filterModalTable()">
+        <input type="text" class="modal-search" id="modalSearch" placeholder="법인명 검색..." oninput="debouncedFilterModal()">
         <button class="modal-btn modal-btn-excel" onclick="downloadModalExcel()">Excel 다운로드</button>
         <button class="modal-btn modal-btn-close" onclick="closeCorpModal()">닫기</button>
       </div>
@@ -1456,7 +1526,7 @@
 
 <!-- ─── FOOTER ─── -->
 <footer>
-  <div>데이터 소스: BigQuery — 카드 발급 퍼널 분석 쿼리 (2025-01 ~ 2026-02) | 코호트 소진율: M0~M3 월별 집계 | 업데이트: 2026-03-05</div>
+  <div>데이터 소스: BigQuery — 카드 발급 퍼널 분석 쿼리 (2025-01 ~ 2026-02) | 코호트 소진율: M0~M3 월별 집계 | <span class="data-freshness" id="dataFreshness">업데이트: 계산 중...</span></div>
   <span class="sql-toggle" onclick="toggleSQL()">▶ SQL 쿼리 보기</span>
   <div class="sql-block" id="sqlBlock">
 -- 발급 퍼널 집계 쿼리 (BigQuery)
@@ -1601,10 +1671,12 @@ function getTheme() { return localStorage.getItem('theme') || 'dark'; }
 
 function applyTheme(t) {
   if (t === 'light') {
+    document.documentElement.classList.add('light-mode');
     document.body.classList.add('light-mode');
     document.getElementById('themeIcon').textContent = '🌙';
     document.getElementById('themeLabel').textContent = '다크 모드';
   } else {
+    document.documentElement.classList.remove('light-mode');
     document.body.classList.remove('light-mode');
     document.getElementById('themeIcon').textContent = '☀️';
     document.getElementById('themeLabel').textContent = '라이트 모드';
@@ -2478,6 +2550,7 @@ function buildTierChart() {
    INDUSTRY CHART (dynamic, multi-metric)
 ══════════════════════════════════════════ */
 let _currentIndustryMetric = 'fs';
+let _lastIndustrySorted = [];
 
 const IND_METRIC_CFG = {
   fs:  { key: 'fs', hitKey: null,     label: '첫결제율',       unit: '%', thresholds: [80, 60], xMax: 100, target: null },
@@ -2537,6 +2610,7 @@ function buildIndustryChart(filteredUsage) {
   // Filter and sort
   const validData = INDUSTRY_DATA.filter(d => d[cfg.key] != null && d[cfg.key] > 0);
   const sorted = [...validData].sort((a, b) => _industrySortFn(a, b, cfg));
+  _lastIndustrySorted = sorted;
 
   const sortLabels = { rate: '지표율', cnt: '고객수', abs: '달성건수' };
   const dirLabel = _industrySortDir === 'desc' ? '높은 순' : '낮은 순';
@@ -2605,6 +2679,26 @@ function buildIndustryChart(filteredUsage) {
       }
     }]
   });
+
+  // Chart click drill-down
+  document.getElementById('industryChart').onclick = function(evt) {
+    const points = chartInstances['industryChart'].getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+    if (points.length > 0) {
+      const idx = points[0].index;
+      const industry = _lastIndustrySorted[idx].name;
+      const corps = (typeof CORP_DETAIL !== 'undefined' ? CORP_DETAIL : []).filter(c => c.industry === industry || c.ind === industry);
+      if (corps.length > 0) {
+        const cols = [
+          { label: '법인명', key: 'name', render: r => r.name || r.n },
+          { label: '한도(만원)', key: 'limit', cls: 'num', render: r => (r.limit || r.lim || 0).toLocaleString() },
+          { label: 'M0(%)', key: 'm0', cls: 'num', render: r => r.m0 != null ? r.m0 + '%' : '-' },
+          { label: 'M1(%)', key: 'm1', cls: 'num', render: r => r.m1 != null ? r.m1 + '%' : '-' },
+          { label: '첫결제', key: 'fs', render: r => r.fs ? '<span class="badge-y">Y</span>' : '<span class="badge-n">N</span>' },
+        ];
+        openCorpModal(industry + ' 업종 법인 상세', corps.length + '사', cols, corps, 'industry_' + industry);
+      }
+    }
+  };
 
   // Dynamic insights
   buildIndustryInsights(sorted, cfg);
@@ -2992,10 +3086,10 @@ function buildSegmentInsight(filteredUsage) {
   const m1Rate = pct(agg.m1_cnt, agg.m1_eligible);
 
   const items = [
-    `<li><strong>한도 규모와 소진율 관계</strong> — ${minTier.tier} 구간 M1 ${minTier.avg_m1}%로 최저, ${maxTier.tier} 구간 ${maxTier.avg_m1}%로 최고</li>`,
-    `<li><strong>달성사 한도 평균이 ${limitRatio}배 높음</strong> — ${fmtLimit(aLimit)} vs ${fmtLimit(mLimit)}. 한도 여유가 활성화에 긍정적 영향</li>`,
-    `<li><strong>은행/홈택스 연동률 차이</strong> — 달성사 은행 ${fmtVal(comp.achieved.bank,'%')} vs 미달성 ${fmtVal(comp.missed.bank,'%')}, 홈택스 ${fmtVal(comp.achieved.htax,'%')} vs ${fmtVal(comp.missed.htax,'%')}</li>`,
-    `<li><strong>${bestHitTier.tier} 구간 달성률 ${bestHitTier.hit}%</strong> — 전체 M1 목표달성률 ${m1Rate}% 대비 우수 구간</li>`,
+    `<li><strong>한도 규모와 소진율 관계</strong> — ${minTier.tier} 구간 M1 ${minTier.avg_m1}%로 최저, ${maxTier.tier} 구간 ${maxTier.avg_m1}%로 최고<br><span style="color:var(--primary);font-size:12px;">&#x2192; ${minTier.tier} 구간 고객 대상 소액 결제 유도 캠페인(교통비/구독료 등 정기결제 안내)</span></li>`,
+    `<li><strong>달성사 한도 평균이 ${limitRatio}배 높음</strong> — ${fmtLimit(aLimit)} vs ${fmtLimit(mLimit)}. 한도 여유가 활성화에 긍정적 영향<br><span style="color:var(--primary);font-size:12px;">&#x2192; 저한도 미달성 법인에 은행/홈택스 연동 유도 → 한도 상향 심사 자동 트리거</span></li>`,
+    `<li><strong>은행/홈택스 연동률 차이</strong> — 달성사 은행 ${fmtVal(comp.achieved.bank,'%')} vs 미달성 ${fmtVal(comp.missed.bank,'%')}, 홈택스 ${fmtVal(comp.achieved.htax,'%')} vs ${fmtVal(comp.missed.htax,'%')}<br><span style="color:var(--primary);font-size:12px;">&#x2192; 미연동 고객 D+3 팝업 가이드 + 연동 완료 시 한도 상향 혜택 안내</span></li>`,
+    `<li><strong>${bestHitTier.tier} 구간 달성률 ${bestHitTier.hit}%</strong> — 전체 M1 목표달성률 ${m1Rate}% 대비 우수 구간<br><span style="color:var(--primary);font-size:12px;">&#x2192; 해당 구간 성공 패턴 분석 → 타 구간 온보딩 플레이북에 반영</span></li>`,
   ];
 
   list.innerHTML = items.join('');
@@ -3040,6 +3134,12 @@ function renderModalRows(rows) {
       return `<td class="${cls}">${val}</td>`;
     }).join('') + '</tr>'
   ).join('');
+}
+
+let _modalSearchTimer;
+function debouncedFilterModal() {
+  clearTimeout(_modalSearchTimer);
+  _modalSearchTimer = setTimeout(filterModalTable, 300);
 }
 
 function filterModalTable() {
@@ -3375,6 +3475,59 @@ function buildAlertBanners(filtered, filteredUsage) {
     }
   });
 
+  // ── Anomaly Detection (#7) ──
+  // M1 drop >8%p vs previous cohort
+  for (let i = 1; i < usageData.length; i++) {
+    const curr = usageData[i], prev = usageData[i - 1];
+    if (curr.m1 != null && prev.m1 != null && prev.m1 - curr.m1 > 8) {
+      const id = `anom-m1drop-${curr.cohort}`;
+      if (!alerts.find(a => a.id === id)) {
+        alerts.push({
+          id, days: null, severity: 'amber',
+          title: `[이상감지] ${curr.label} M1 소진율 급락 (${prev.m1}% -> ${curr.m1}%)`,
+          detail: `전월 대비 ${(prev.m1 - curr.m1).toFixed(1)}%p 하락. 코호트 품질 또는 온보딩 변경 여부 확인 필요`,
+          action: '해당 코호트 법인 리스트 분석 + 유입 채널별 M1 분리 확인',
+        });
+      }
+    }
+  }
+  // 한도0원 >40% in latest month
+  const fData = filtered || FUNNEL_DATA;
+  if (fData.length > 0) {
+    const latest = fData[fData.length - 1];
+    if (latest.limit_result_any > 0) {
+      const zeroRate = Math.round(latest.limit_zero / latest.limit_result_any * 1000) / 10;
+      if (zeroRate > 40) {
+        const id = `anom-zero-${latest.month}`;
+        if (!alerts.find(a => a.id === id)) {
+          alerts.push({
+            id, days: null, severity: zeroRate > 60 ? 'red' : 'amber',
+            title: `[이상감지] ${latest.label} 한도0원 비율 ${zeroRate}%`,
+            detail: `${latest.limit_zero}건/${latest.limit_result_any}건이 한도 0원. 유입 품질 저하 또는 심사 기준 변경 가능성`,
+            action: '유입 채널별 한도0원 비율 분석 + 부적격 사전 필터 강화',
+          });
+        }
+      }
+    }
+    // Conversion rate drop >10%p month-over-month
+    if (fData.length >= 2) {
+      const lat = fData[fData.length - 1], prv = fData[fData.length - 2];
+      const latConv = lat.submitted > 0 ? Math.round(lat.card_issued / lat.submitted * 1000) / 10 : 0;
+      const prvConv = prv.submitted > 0 ? Math.round(prv.card_issued / prv.submitted * 1000) / 10 : 0;
+      if (prvConv - latConv > 10) {
+        const id = `anom-conv-${lat.month}`;
+        if (!alerts.find(a => a.id === id)) {
+          alerts.push({
+            id, days: null, severity: 'red',
+            title: `[이상감지] ${lat.label} 전환율 급락 ${latConv}% (전월 ${prvConv}%)`,
+            detail: `${(prvConv - latConv).toFixed(1)}%p 하락. 퍼널 전 단계 점검 필요`,
+            action: '단계별 이탈률 분석 + 최근 변경사항(심사기준/UI) 롤백 검토',
+          });
+        }
+      }
+    }
+  }
+
   // Sort by urgency
   const sevOrder = { red: 0, amber: 1, green: 2 };
   alerts.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity] || (a.days || 999) - (b.days || 999));
@@ -3520,7 +3673,14 @@ function buildWeeklySummary(filtered, filteredUsage) {
   if (lowInd.length > 0) {
     actionItems.push(`<li><strong>[이번주] 하위 업종 맞춤 온보딩 제작</strong> → ${lowInd.slice(0,2).map(d => d.name+'('+d.m1+'%)').join(', ')} 대상 업종별 카드활용 가이드 콘텐츠 발행</li>`);
   }
-  actionItems.push(`<li><strong>[매주] 코호트별 미결제/미달성 명단 갱신</strong> → BigQuery 쿼리 실행 후 CRM 태그 업데이트 및 담당자 배분</li>`);
+  actionItems.push(`<li><strong>[매주 월요일] 코호트별 미결제/미달성 명단 갱신</strong> → BigQuery 쿼리 실행 → CRM 태그 업데이트 → 담당자별 5사 이내 배분 → 수요일까지 컨택 완료 보고</li>`);
+
+  // SLA 추적 안내 (#8)
+  const slaEstimate = filtered.length > 0 ? Math.round(filtered.reduce((s, d) => {
+    const conv = d.submitted > 0 ? d.card_issued / d.submitted : 0;
+    return s + (conv < 0.3 ? 21 : conv < 0.5 ? 14 : 10);
+  }, 0) / filtered.length) : 14;
+  actionItems.push(`<li><strong>[참고] 예상 평균 발급 소요일: ~${slaEstimate}일</strong> (퍼널 전환율 기반 추정치) → 정확한 SLA 데이터는 다음 업데이트에 타임스탬프 기반 집계 포함 예정</li>`);
 
   grid.innerHTML = `
     <div class="weekly-box">
@@ -3623,9 +3783,18 @@ function buildBottleneckInsight(filtered) {
 
   const items = [];
 
-  // Top 3 병목
+  // Top 3 병목 + 처방형 액션아이템
+  const prescriptions = {
+    '도입신청→승인': '심사 기준 완화 또는 사전 적격 체크리스트 도입으로 부적격 신청 사전 필터링',
+    '승인→회원가입': '승인 후 24시간 내 가입 유도 알림 자동화 + 가입 페이지 UX 간소화',
+    '회원가입→입회시작': '가입 즉시 한도심사 자동 시작 또는 원클릭 한도심사 신청 버튼 배치',
+    '한도산출→유효(0원 제외)': '유입 채널별 한도0원 비율 분석 → 저품질 채널 예산 재배분 + 심사 전 사전필터 강화',
+    '카드정보입력→발급신청': '미완료 고객 D+1 푸시알림 + 입력 단계 간소화(자동완성 등)',
+    '발급신청→발급완료': '카드사 발급 프로세스 병목 확인 + 발급 현황 실시간 안내 메시지 발송',
+  };
   ranked.slice(0, 3).forEach((s, i) => {
-    items.push(`<li><strong>${i + 1}위 병목: ${s.name}</strong> — 이탈률 ${s.rate}% (${s.drop.toLocaleString()}건 탈락, ${s.den.toLocaleString()}건 중)</li>`);
+    const rx = prescriptions[s.name] || '해당 단계 상세 분석 후 개선 방안 수립';
+    items.push(`<li><strong>${i + 1}위 병목: ${s.name}</strong> — 이탈률 ${s.rate}% (${s.drop.toLocaleString()}건 탈락, ${s.den.toLocaleString()}건 중)<br><span style="color:var(--primary);font-size:12px;">&#x2192; 처방: ${rx}</span></li>`);
   });
 
   // 월별 특이사항 탐지 (최근 월 vs 이전 월 비교)
@@ -4094,6 +4263,119 @@ function buildAssessments(filtered, filteredUsage) {
 }
 
 /* ══════════════════════════════════════════
+   DATA STALENESS INDICATOR (#1)
+══════════════════════════════════════════ */
+function getRelativeTime(dateStr) {
+  const updated = new Date(dateStr + 'T00:00:00');
+  const now = new Date();
+  const diffMs = now - updated;
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) {
+    if (diffHours < 1) return '방금 전';
+    return diffHours + '시간 전';
+  } else if (diffDays === 1) return '어제';
+  else if (diffDays < 7) return diffDays + '일 전';
+  else if (diffDays < 30) return Math.floor(diffDays / 7) + '주 전';
+  else return Math.floor(diffDays / 30) + '개월 전';
+}
+
+function renderDataFreshness() {
+  const el = document.getElementById('dataFreshness');
+  if (!el) return;
+  const diffMs = new Date() - new Date(DATA_UPDATED_AT + 'T00:00:00');
+  const diffDays = Math.floor(diffMs / 86400000);
+  let cls = 'fresh';
+  if (diffDays > 3) cls = 'old';
+  else if (diffDays >= 1) cls = 'stale';
+  const relative = getRelativeTime(DATA_UPDATED_AT);
+  el.innerHTML = '업데이트: ' + DATA_UPDATED_AT +
+    ' <span class="freshness-badge ' + cls + '">' + relative + '</span>';
+}
+
+/* ══════════════════════════════════════════
+   COHORT COMPARISON VIEW (#6)
+══════════════════════════════════════════ */
+function toggleCohortCompare() {
+  const wrap = document.getElementById('cohortCompareWrap');
+  const btn = document.getElementById('btnCohortCompare');
+  wrap.classList.toggle('active');
+  btn.classList.toggle('active');
+  if (wrap.classList.contains('active') && document.getElementById('cohortCompareA').options.length === 0) {
+    initCohortCompareDropdowns();
+    runCohortCompare();
+  }
+}
+
+function initCohortCompareDropdowns() {
+  const selA = document.getElementById('cohortCompareA');
+  const selB = document.getElementById('cohortCompareB');
+  const opts = USAGE_DATA.filter(d => d.total > 2).map(d => d.cohort);
+  opts.forEach(m => {
+    const labelRow = USAGE_DATA.find(d => d.cohort === m);
+    const label = labelRow ? labelRow.label : m;
+    selA.add(new Option(label, m));
+    selB.add(new Option(label, m));
+  });
+  if (opts.length >= 2) { selA.value = opts[opts.length - 2]; selB.value = opts[opts.length - 1]; }
+}
+
+function runCohortCompare() {
+  const a = USAGE_DATA.find(d => d.cohort === document.getElementById('cohortCompareA').value);
+  const b = USAGE_DATA.find(d => d.cohort === document.getElementById('cohortCompareB').value);
+  const grid = document.getElementById('cohortCompareGrid');
+  if (!a || !b) { grid.innerHTML = '<div style="color:var(--text-muted)">코호트를 선택하세요</div>'; return; }
+
+  const metrics = [
+    { label: '발급수', ka: 'total', kb: 'total' },
+    { label: '첫결제율', ka: 'first_spend', kb: 'first_spend', pct: true, den: 'total' },
+    { label: 'M0 소진율', ka: 'm0', kb: 'm0', suffix: '%' },
+    { label: 'M1 소진율', ka: 'm1', kb: 'm1', suffix: '%' },
+    { label: 'M1 달성률', ka: 'm1_hit', kb: 'm1_hit', suffix: '%' },
+    { label: 'M2 소진율', ka: 'm2', kb: 'm2', suffix: '%' },
+    { label: 'M2 달성률', ka: 'm2_hit', kb: 'm2_hit', suffix: '%' },
+  ];
+
+  grid.innerHTML = metrics.map(m => {
+    let valA, valB, delta;
+    if (m.pct) {
+      valA = a[m.den] > 0 ? Math.round(a[m.ka] / a[m.den] * 1000) / 10 : 0;
+      valB = b[m.den] > 0 ? Math.round(b[m.kb] / b[m.den] * 1000) / 10 : 0;
+      delta = valB - valA;
+      return deltaCard(m.label, valA + '%', valB + '%', delta, '%p');
+    }
+    valA = a[m.ka]; valB = b[m.kb];
+    if (valA == null || valB == null) return deltaCard(m.label, valA ?? '-', valB ?? '-', null, '');
+    delta = valB - valA;
+    const suffix = m.suffix || '';
+    return deltaCard(m.label, valA + suffix, valB + suffix, delta, suffix === '%' ? '%p' : '');
+  }).join('');
+}
+
+function deltaCard(label, valA, valB, delta, unit) {
+  let cls = '', sign = '';
+  if (delta != null) {
+    if (delta > 0) { cls = 'pos'; sign = '+'; }
+    else if (delta < 0) { cls = 'neg'; sign = ''; }
+  }
+  const deltaText = delta != null ? '<span class="delta-change ' + cls + '">' + sign + (Math.round(delta * 10) / 10) + unit + '</span>' : '';
+  return '<div class="cohort-delta-card">' +
+    '<div class="delta-label">' + label + '</div>' +
+    '<div class="delta-values"><span class="delta-val">' + valB + '</span>' + deltaText + '</div>' +
+    '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">이전: ' + valA + '</div></div>';
+}
+
+/* ══════════════════════════════════════════
+   MOBILE MENU TOGGLE (#9)
+══════════════════════════════════════════ */
+function toggleMobileMenu() {
+  const btns = document.querySelectorAll('.header-right .header-btn');
+  btns.forEach(b => {
+    b.style.display = b.style.display === 'inline-flex' ? 'none' : 'inline-flex';
+  });
+}
+
+/* ══════════════════════════════════════════
    BUILD ALL CHARTS (for theme change)
 ══════════════════════════════════════════ */
 function buildAllCharts() {
@@ -4135,6 +4417,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setQuick('all');
   buildTierChart();
   initCohortProfile();
+  renderDataFreshness();
 
   document.getElementById('filterInfo').textContent =
     FUNNEL_DATA.length + '개월 선택 (' + FUNNEL_DATA[0].label + ' ~ ' + FUNNEL_DATA[FUNNEL_DATA.length-1].label + ')';
