@@ -327,32 +327,19 @@ async function main() {
 
 async function deployToGhPages() {
   const { execSync } = require('child_process');
-  const tmpDir = '/tmp/gh-pages-deploy';
-  const repoUrl = 'https://github.com/5yuna5/yuna-test.git';
+  const projectDir = __dirname;
 
   try {
     console.log('\n🚀 GitHub Pages 배포 중...');
 
-    // clone or pull
-    if (fs.existsSync(tmpDir + '/.git')) {
-      execSync('git pull origin gh-pages', { cwd: tmpDir, stdio: 'pipe' });
-    } else {
-      if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
-      execSync(`git clone --branch gh-pages --single-branch ${repoUrl} ${tmpDir}`, { stdio: 'pipe' });
-    }
-
-    // copy updated file
-    fs.copyFileSync(HTML_FILE, path.join(tmpDir, 'limit_increase_dashboard.html'));
-
-    // commit & push
-    execSync('git add limit_increase_dashboard.html', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git add limit_increase_dashboard.html', { cwd: projectDir, stdio: 'pipe' });
 
     try {
-      execSync('git diff --cached --quiet', { cwd: tmpDir, stdio: 'pipe' });
+      execSync('git diff --cached --quiet', { cwd: projectDir, stdio: 'pipe' });
       console.log('   변경 없음 — push 생략');
     } catch {
-      execSync('git commit -m "auto: update limit_increase_dashboard data"', { cwd: tmpDir, stdio: 'pipe' });
-      execSync('git push origin gh-pages', { cwd: tmpDir, stdio: 'pipe', timeout: 30000 });
+      execSync('git commit -m "auto: update limit_increase_dashboard data"', { cwd: projectDir, stdio: 'pipe' });
+      execSync('git push origin main', { cwd: projectDir, stdio: 'pipe', timeout: 30000 });
       console.log('✅ GitHub Pages 배포 완료!');
     }
   } catch (err) {
