@@ -185,6 +185,44 @@
       header { padding: 10px 16px; }
     }
 
+    /* ── MOBILE ── */
+    @media (max-width: 600px) {
+      .container { padding: 8px; }
+      header { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
+      header h1 { font-size: 14px; }
+      header .sub { font-size: 10px; }
+      .filter-bar { padding: 8px 12px; gap: 8px; }
+      .filter-bar label { font-size: 11px; }
+      .filter-bar select { font-size: 11px; padding: 4px 6px; max-width: 100px; }
+      .filter-bar .filter-info { font-size: 10px; width: 100%; margin-left: 0; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .kpi-card { padding: 10px 12px; }
+      .kpi-card .kpi-value { font-size: 18px; }
+      .kpi-card .kpi-label, .kpi-card .kpi-sub { font-size: 10px; }
+      .funnel-step { gap: 6px; }
+      .funnel-step .step-label { width: 60px; font-size: 10px; }
+      .funnel-step .step-bar-wrap { height: 22px; }
+      .funnel-step .step-bar { font-size: 10px; padding-left: 4px; }
+      .funnel-step .step-count { width: 45px; font-size: 11px; }
+      .funnel-step .step-rate { width: 36px; font-size: 10px; }
+      .funnel-tooltip { left: 0; min-width: 220px; max-width: 90vw; max-height: 260px; font-size: 11px; }
+      .section-title { font-size: 13px; }
+      .card { padding: 12px; }
+      .data-table { font-size: 11px; }
+      .data-table th, .data-table td { padding: 6px 4px; }
+      .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .tab-bar { gap: 4px; }
+      .tab-btn { font-size: 11px; padding: 4px 8px; }
+      .chart-wrap { height: 200px; }
+      .insight-card { padding: 12px; }
+      .insight-card h4 { font-size: 13px; }
+      .insight-card p { font-size: 11px; }
+      .metric-row { gap: 8px; }
+      .metric-item .metric-val { font-size: 16px; }
+      .metric-item .metric-label { font-size: 10px; }
+      footer { font-size: 10px; padding: 12px; }
+    }
+
     /* ── INSIGHT CARDS ── */
     .insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     @media (max-width: 900px) { .insight-grid { grid-template-columns: 1fr; } }
