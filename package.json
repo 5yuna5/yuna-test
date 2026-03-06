@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.2.0",
+    "googleapis": "^171.4.0"
+  }
+}
