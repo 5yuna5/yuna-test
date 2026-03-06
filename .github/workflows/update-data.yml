@@ -30,7 +30,12 @@ jobs:
       - name: Write BigQuery credentials
         run: |
           mkdir -p $HOME/.claude/credentials
-          echo '${{ secrets.BIGQUERY_KEY_JSON }}' > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Verify credentials
+        run: head -c 50 $HOME/.claude/credentials/gowid-prd-bigquery-key.json && echo ""
 
       - name: Update data
         run: node update_data.js
