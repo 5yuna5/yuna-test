@@ -158,28 +158,31 @@ async function fetchDetailData() {
   console.log('  [3/4] DETAIL_DATA 조회 중...');
   const rows = await query(`
     SELECT
-      id,
-      corp_name,
-      application_type AS type,
-      card_company_name AS card_co,
-      latest_status AS status,
-      gowid_status,
-      card_company_status AS card_co_status,
-      ROUND(COALESCE(gowid_approved_limit_amount, 0) / 10000, 0) AS approved_limit,
-      ROUND(COALESCE(current_limit_amount, 0) / 10000, 0) AS current_limit,
-      ROUND(COALESCE(requested_limit_amount, 0) / 10000, 0) AS requested_limit,
-      days_elapsed,
-      FORMAT_DATETIME('%Y-%m-%d', initialized_at) AS init_date,
-      FORMAT_DATETIME('%Y-%m-%d', gowid_approved_at) AS gowid_date,
-      FORMAT_DATETIME('%Y-%m-%d', application_submitted_at) AS submit_date,
-      FORMAT_DATETIME('%Y-%m-%d', card_co_approved_at) AS approved_date,
-      FORMAT_DATETIME('%Y-%m-%d', gowid_rejected_at) AS rejected_date,
-      FORMAT_DATETIME('%Y-%m-%d', card_co_rejected_at) AS card_rejected_date,
-      total_review_duration AS total_days
-    FROM \`gowid-prd.mart_limit_application.application_status\`
-    WHERE application_type IN ('한도상향', '카드사 추가')
-      AND initialized_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
-    ORDER BY initialized_at DESC
+      a.id,
+      a.corp_name,
+      a.application_type AS type,
+      a.card_company_name AS card_co,
+      a.latest_status AS status,
+      a.gowid_status,
+      a.card_company_status AS card_co_status,
+      ROUND(COALESCE(a.gowid_approved_limit_amount, 0) / 10000, 0) AS approved_limit,
+      ROUND(COALESCE(a.current_limit_amount, 0) / 10000, 0) AS current_limit,
+      ROUND(COALESCE(a.requested_limit_amount, 0) / 10000, 0) AS requested_limit,
+      a.days_elapsed,
+      FORMAT_DATETIME('%Y-%m-%d', a.initialized_at) AS init_date,
+      FORMAT_DATETIME('%Y-%m-%d', a.gowid_approved_at) AS gowid_date,
+      FORMAT_DATETIME('%Y-%m-%d', a.application_submitted_at) AS submit_date,
+      FORMAT_DATETIME('%Y-%m-%d', a.card_co_approved_at) AS approved_date,
+      FORMAT_DATETIME('%Y-%m-%d', a.gowid_rejected_at) AS rejected_date,
+      FORMAT_DATETIME('%Y-%m-%d', a.card_co_rejected_at) AS card_rejected_date,
+      a.total_review_duration AS total_days,
+      FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
+      IFNULL(c.assigned_am, '') AS assigned_am
+    FROM \`gowid-prd.mart_limit_application.application_status\` a
+    LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    WHERE a.application_type IN ('한도상향', '카드사 추가')
+      AND a.initialized_at >= '2025-06-01'
+    ORDER BY a.initialized_at DESC
   `);
 
   return rows.map(r => ({
@@ -201,6 +204,7 @@ async function fetchDetailData() {
     reject: r.rejected_date,
     card_reject: r.card_rejected_date,
     total: Number(r.total_days || 0),
+    am: r.assigned_am || '',
   }));
 }
 
@@ -236,32 +240,61 @@ async function fetchCardCoData() {
   }));
 }
 
-// ─── 5. REJECT_DATA: 부결 건 고객명 (퍼널 팝업용) ───
-async function fetchRejectData() {
-  console.log('  [5/5] REJECT_DATA 조회 중...');
+// ─── 5. RECORD_DATA: 전체 건별 레코드 (퍼널 팝업 + AM 필터용) ───
+async function fetchRecordData() {
+  console.log('  [5/5] RECORD_DATA 조회 중...');
   const rows = await query(`
     SELECT
-      FORMAT_DATETIME('%Y-%m', initialized_at) AS month,
-      corp_name,
-      application_type AS type,
-      card_company_name AS card_co,
-      CASE
-        WHEN gowid_rejected_at IS NOT NULL THEN 'gowid'
-        WHEN card_co_rejected_at IS NOT NULL THEN 'card_co'
-      END AS reject_type
-    FROM \`gowid-prd.mart_limit_application.application_status\`
-    WHERE application_type IN ('한도상향', '카드사 추가')
-      AND initialized_at >= '2025-06-01'
-      AND (gowid_rejected_at IS NOT NULL OR card_co_rejected_at IS NOT NULL)
-    ORDER BY initialized_at DESC
+      FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
+      a.corp_name,
+      a.application_type AS type,
+      a.card_company_name AS card_co,
+      IFNULL(c.assigned_am, '') AS am,
+      CASE WHEN a.application_submitted_at IS NOT NULL THEN 1 ELSE 0 END AS f2,
+      CASE WHEN a.card_co_pending_at IS NOT NULL AND a.gowid_rejected_at IS NULL THEN 1 ELSE 0 END AS f3,
+      CASE WHEN a.card_co_approved_at IS NOT NULL AND a.gowid_rejected_at IS NULL THEN 1 ELSE 0 END AS f4,
+      CASE WHEN a.gowid_rejected_at IS NOT NULL THEN 1 ELSE 0 END AS rj,
+      CASE WHEN a.gowid_rejected_at IS NULL AND a.card_co_rejected_at IS NOT NULL THEN 1 ELSE 0 END AS cr,
+      CASE WHEN a.canceled_at IS NOT NULL THEN 1 ELSE 0 END AS cn,
+      CASE WHEN a.gowid_rejected_at IS NULL AND a.card_co_approved_at IS NULL
+                AND a.card_co_rejected_at IS NULL AND a.canceled_at IS NULL THEN 1 ELSE 0 END AS ip,
+      ROUND(COALESCE(CASE WHEN a.gowid_rejected_at IS NULL THEN a.gowid_approved_limit_amount END, 0) / 10000, 0) AS al,
+      ROUND(COALESCE(a.current_limit_amount, 0) / 10000, 0) AS cl,
+      ROUND(COALESCE(a.requested_limit_amount, 0) / 10000, 0) AS rl,
+      a.total_review_duration AS td,
+      a.card_co_review_duration AS cd,
+      a.net_gowid_review_duration AS nd,
+      a.limit_check_duration AS ld,
+      a.application_submit_duration AS sd,
+      CASE WHEN a.card_co_approved_at IS NOT NULL OR a.gowid_rejected_at IS NOT NULL
+                OR a.card_co_rejected_at IS NOT NULL OR a.canceled_at IS NOT NULL THEN 1 ELSE 0 END AS done,
+      CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
+      CASE WHEN a.is_net_gowid_review_duration_over THEN 1 ELSE 0 END AS go,
+      CASE WHEN a.is_application_submit_duration_over THEN 1 ELSE 0 END AS so,
+      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co
+    FROM \`gowid-prd.mart_limit_application.application_status\` a
+    LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    WHERE a.application_type IN ('한도상향', '카드사 추가')
+      AND a.initialized_at >= '2025-06-01'
+    ORDER BY a.initialized_at DESC
   `);
 
   return rows.map(r => ({
     m: r.month,
-    corp: r.corp_name,
-    type: r.type === '한도상향' ? '상향' : '추가',
-    card: r.card_co || '',
-    rt: r.reject_type,
+    c: r.corp_name,
+    t: r.type === '한도상향' ? '상향' : '추가',
+    cc: r.card_co || '',
+    am: r.am,
+    f2: Number(r.f2), f3: Number(r.f3), f4: Number(r.f4),
+    rj: Number(r.rj), cr: Number(r.cr), cn: Number(r.cn), ip: Number(r.ip),
+    al: Number(r.al), cl: Number(r.cl), rl: Number(r.rl),
+    td: r.td != null ? Number(r.td) : null,
+    cd: r.cd != null ? Number(r.cd) : null,
+    nd: r.nd != null ? Number(r.nd) : null,
+    ld: r.ld != null ? Number(r.ld) : null,
+    sd: r.sd != null ? Number(r.sd) : null,
+    done: Number(r.done),
+    lo: Number(r.lo), go: Number(r.go), so: Number(r.so), co: Number(r.co),
   }));
 }
 
@@ -296,7 +329,7 @@ async function main() {
     fetchSLAData(),
     fetchDetailData(),
     fetchCardCoData(),
-    fetchRejectData(),
+    fetchRecordData(),
   ]);
 
   console.log(`\n📊 조회 완료:`);
@@ -304,7 +337,7 @@ async function main() {
   console.log(`  SLA_DATA: ${sla.length}개월`);
   console.log(`  DETAIL_DATA: ${detail.length}건 (최근 90일)`);
   console.log(`  CARD_CO_DATA: ${cardCo.length}개 카드사×유형`);
-  console.log(`  REJECT_DATA: ${reject.length}건`);
+  console.log(`  RECORD_DATA: ${reject.length}건`);
 
   console.log('\n📝 HTML 파일 업데이트 중...');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
@@ -313,7 +346,7 @@ async function main() {
   html = replaceConst(html, 'SLA_DATA', sla);
   html = replaceConst(html, 'DETAIL_DATA', detail);
   html = replaceConst(html, 'CARD_CO_DATA', cardCo);
-  html = replaceConst(html, 'REJECT_DATA', reject);
+  html = replaceConst(html, 'RECORD_DATA', reject);
   html = updateTimestamp(html);
 
   fs.writeFileSync(HTML_FILE, html);

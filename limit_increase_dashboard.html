@@ -967,10 +967,7 @@ function buildDetailTable() {
     const m = r.init ? r.init.slice(0, 7) : '';
     return m >= start && m <= end;
   });
-  if (am) rows = rows.filter(r => {
-    const rec = RECORD_DATA.find(rd => rd.c === r.corp && rd.m === (r.init ? r.init.slice(0,7) : ''));
-    return rec && rec.am === am;
-  });
+  if (am) rows = rows.filter(r => r.am === am);
   if (tf === '한도상향') rows = rows.filter(r => r.type === '한도상향');
   else if (tf === '카드사 추가') rows = rows.filter(r => r.type === '카드사 추가');
   if (sf === 'in_progress') rows = rows.filter(r => !r.done && !r.reject && !r.card_reject);
