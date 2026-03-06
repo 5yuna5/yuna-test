@@ -1607,7 +1607,8 @@ function openChangelog(){ document.getElementById('changelogModal').style.displa
 function closeChangelog(){ document.getElementById('changelogModal').style.display='none'; }
 function openUpdateModal(){
   document.getElementById('updateModal').style.display='flex';
-  document.getElementById('updateDate').textContent = typeof DATA_UPDATED_AT !== 'undefined' ? DATA_UPDATED_AT : '알 수 없음';
+  const _d = typeof DATA_UPDATED_AT !== 'undefined' ? new Date(DATA_UPDATED_AT) : null;
+  document.getElementById('updateDate').textContent = _d ? _d.getFullYear() + '-' + String(_d.getMonth()+1).padStart(2,'0') + '-' + String(_d.getDate()).padStart(2,'0') + ' ' + String(_d.getHours()).padStart(2,'0') + ':' + String(_d.getMinutes()).padStart(2,'0') : '알 수 없음';
   document.getElementById('updateRange').textContent = FUNNEL_DATA[0].label + ' ~ ' + FUNNEL_DATA[FUNNEL_DATA.length-1].label + ' (' + FUNNEL_DATA.length + '개월)';
   document.getElementById('updateCorpCount').textContent = CORP_DETAIL.length + '사 (사용) / ' + FUNNEL_DETAIL.length + '사 (퍼널)';
 }
@@ -4477,7 +4478,9 @@ function renderDataFreshness() {
   if (diffDays > 3) cls = 'old';
   else if (diffDays >= 1) cls = 'stale';
   const relative = getRelativeTime(DATA_UPDATED_AT);
-  el.innerHTML = '업데이트: ' + DATA_UPDATED_AT +
+  const d = new Date(DATA_UPDATED_AT);
+  const fmt = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  el.innerHTML = '업데이트: ' + fmt +
     ' <span class="freshness-badge ' + cls + '">' + relative + '</span>';
 }
 
