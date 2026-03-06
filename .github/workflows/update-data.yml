@@ -19,6 +19,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Verify files
+        run: ls -la package.json
+
       - name: Install dependencies
         run: npm install
 
