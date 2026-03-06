@@ -2,8 +2,8 @@ name: Update Dashboard Data
 
 on:
   schedule:
-    # 매일 한국시간 오전 9시 (UTC 0시)
-    - cron: '0 0 * * *'
+    # 매일 한국시간 오전 7시, 8시, 9시 (UTC 22시, 23시, 0시)
+    - cron: '0 22,23,0 * * *'
   workflow_dispatch: # 수동 실행도 가능
 
 jobs:
@@ -21,9 +21,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Verify files
-        run: ls -la package.json
-
       - name: Install dependencies
         run: npm install
 
@@ -33,9 +30,6 @@ jobs:
           printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
         env:
           BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
-
-      - name: Verify credentials
-        run: head -c 50 $HOME/.claude/credentials/gowid-prd-bigquery-key.json && echo ""
 
       - name: Update data
         run: node update_data.js
