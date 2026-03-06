@@ -1172,6 +1172,22 @@
     </div>
     <div class="modal-body">
       <div class="changelog-entry">
+        <div class="changelog-date">2026-03-06</div>
+        <div class="changelog-tag tag-minor">Code Quality</div>
+        <div class="changelog-title">코드 품질 개선 -- 9건 버그 수정 및 정리</div>
+        <ul>
+          <li><strong>[CSS 변수 버그]</strong> 미정의 변수 --text-main(4곳) → --text-strong, --danger(1곳) → --accent 수정</li>
+          <li><strong>[모바일 메뉴]</strong> 인라인 style 토글 → CSS 클래스 + matchMedia 리스너로 리사이즈 버그 해결</li>
+          <li><strong>[함수 통합]</strong> fmtLimit 중복 2개 → 1개로 통합 (Part A/B 공용)</li>
+          <li><strong>[미사용 변수 제거]</strong> doughnutCenter 플러그인 등 미사용 코드 정리</li>
+          <li><strong>[시그널 도트]</strong> 전환율 상태 도트에 색상 클래스(dot-green/dot-yellow/dot-red) 적용</li>
+          <li><strong>[팀 목표 상수화]</strong> 매직넘버(200, 30, 5) → TARGET_ISSUED/TARGET_FIRST_USE/TARGET_M1 상수로 추출</li>
+          <li><strong>[미사용 CSS 제거]</strong> 불필요한 스타일 규칙 정리</li>
+          <li><strong>[자동 업데이트]</strong> 매시간 갱신으로 변경 (KST 07:00~23:00), 데이터 신선도 배지 ISO datetime 기반으로 수정</li>
+          <li><strong>[SLA 실데이터]</strong> BigQuery card_application_funnel 테이블 기반 실제 소요일 데이터 연동</li>
+        </ul>
+      </div>
+      <div class="changelog-entry">
         <div class="changelog-date">2026-03-05</div>
         <div class="changelog-tag tag-major">Major Update</div>
         <div class="changelog-title">대시보드 v4.0 -- UX/분석 10대 개선</div>
