@@ -690,9 +690,9 @@
       transition: background 0.15s;
     }
     .assess-box:hover { background: rgba(148,163,184,0.08); }
-    .assess-box.signal-green { border-left-color: var(--text-muted); }
-    .assess-box.signal-yellow { border-left-color: var(--text-muted); }
-    .assess-box.signal-red { border-left-color: var(--text-muted); }
+    .assess-box.signal-green { border-left-color: var(--success); }
+    .assess-box.signal-yellow { border-left-color: var(--warning); }
+    .assess-box.signal-red { border-left-color: var(--accent); }
     .assess-header {
       display: flex; align-items: center; gap: 8px;
       font-weight: 600; color: var(--text-muted); font-size: 12px;
@@ -700,9 +700,9 @@
     .assess-header .signal {
       display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
     }
-    .signal-dot-green { background: #94a3b8; box-shadow: 0 0 4px rgba(148,163,184,0.5); }
-    .signal-dot-yellow { background: #94a3b8; box-shadow: 0 0 4px rgba(148,163,184,0.5); }
-    .signal-dot-red { background: #94a3b8; box-shadow: 0 0 4px rgba(148,163,184,0.5); }
+    .signal-dot-green { background: var(--success); box-shadow: 0 0 4px rgba(52,211,153,0.5); }
+    .signal-dot-yellow { background: var(--warning); box-shadow: 0 0 4px rgba(251,191,36,0.5); }
+    .signal-dot-red { background: var(--accent); box-shadow: 0 0 4px rgba(240,96,96,0.5); }
     .assess-expand {
       font-size: 10px; color: var(--text-muted); margin-left: auto;
       font-weight: 400; white-space: nowrap; opacity: 0.6;
@@ -931,11 +931,11 @@
       .header-left p { display: none; }
       .header-right { gap: 4px !important; }
       .header-right .header-btn { display: none; }
+      .header-right.mobile-open .header-btn { display: inline-flex; }
       .hamburger-btn { display: inline-flex; }
       .header-right .theme-toggle span#themeLabel { display: none; }
 
       .filter-bar { padding: 8px 16px; }
-      .filter-bar.collapsed .filter-hide-mobile { display: none; }
       .filter-bar label { font-size: 12px; }
 
       main { padding: 12px !important; }
@@ -1699,6 +1699,14 @@ const COMPARE_DATA = [
    m3:{a:{cnt:0,limit:null,hc:null,bank:null,htax:null,inv:null,util:null},m:{cnt:27,limit:2174,hc:12.4,bank:100,htax:100,inv:18.5,util:0}}}
 ];
 
+/* ── TEAM TARGETS ── */
+const TARGET_M1 = 20;    // M1 소진율 목표 (%)
+const TARGET_M2 = 35;    // M2 소진율 목표 (%)
+const TARGET_M3 = 45;    // M3 소진율 목표 (%)
+const TARGET_M1_HIT = 80; // M1 달성률 목표 (%)
+const TARGET_M2_HIT = 85; // M2 달성률 목표 (%)
+const TARGET_M3_HIT = 90; // M3 달성률 목표 (%)
+
 /* ══════════════════════════════════════════
    THEME
 ══════════════════════════════════════════ */
@@ -1834,7 +1842,6 @@ function buildKPIRowA(total, filtered) {
   const convRate = pct(total.card_issued, total.submitted);
   const approvalRate = pct(total.approved, total.submitted);
   const nonzeroRate = pct(total.limit_nonzero, total.limit_result_any);
-  const firstSpendRate = pct(total.first_spend, total.card_issued);
   const totalIssuedByMonth = (filtered || []).reduce((s, r) => s + _getIssuedCountByMonth(r.month), 0);
 
   // Find biggest bottleneck
@@ -2637,7 +2644,7 @@ function _industrySortFn(a, b, cfg) {
   return _industrySortDir === 'desc' ? vb - va : va - vb;
 }
 
-function buildIndustryChart(filteredUsage) {
+function buildIndustryChart() {
   destroyChart('industryChart');
   const ctx = document.getElementById('industryChart').getContext('2d');
   const cfg = IND_METRIC_CFG[_currentIndustryMetric];
@@ -2792,13 +2799,12 @@ function buildOnboardingPriority(sorted, cfg) {
     '금융/핀테크': '운영비·외부 서비스 비용 카드 전환 유도',
   };
 
-  const metricLabel = cfg.label;
   const items = lowGroup.map(d => {
     const tip = tips[d.name] || `${d.cnt}개사 대상 맞춤 온보딩 강화 필요`;
     return `<li><strong>${d.name} (${d[cfg.key]}%)</strong> — ${tip}</li>`;
   });
 
-  document.getElementById('onboardingPriorityTitle').innerHTML = `${metricLabel} 개선 우선순위 업종 <span class="insight-toggle">&#x25BC;</span>`;
+  document.getElementById('onboardingPriorityTitle').innerHTML = `${cfg.label} 개선 우선순위 업종 <span class="insight-toggle">&#x25BC;</span>`;
   list.innerHTML = items.length > 0 ? items.join('') : '<li>기준 미달 업종 없음</li>';
 }
 
@@ -2855,7 +2861,7 @@ function buildCohortProfile() {
     const overallPct = overall ? (overall.cnt / INDUSTRY_DATA.reduce((s, d) => s + d.cnt, 0) * 100).toFixed(1) : null;
     const diff = overallPct != null ? (parseFloat(pct) - parseFloat(overallPct)).toFixed(1) : null;
     const diffBadge = diff != null && Math.abs(diff) >= 1
-      ? `<span style="font-size:10px;color:${diff > 0 ? 'var(--success)' : 'var(--danger)'};margin-left:3px;">${diff > 0 ? '+' : ''}${diff}%p</span>`
+      ? `<span style="font-size:10px;color:${diff > 0 ? 'var(--success)' : 'var(--accent)'};margin-left:3px;">${diff > 0 ? '+' : ''}${diff}%p</span>`
       : '';
     const hcDisplay = r.avg_hc != null ? r.avg_hc.toFixed(1) : '-';
     return `<tr>
@@ -3049,8 +3055,8 @@ function aggCompare(filteredUsage, metric) {
 }
 
 function fmtLimit(v) {
-  if (v === null) return '-';
-  return Number(v).toLocaleString() + '만원';
+  if (v == null) return '-';
+  return Math.round(v / 10000).toLocaleString() + '만원';
 }
 
 function fmtVal(v, suffix) {
@@ -3226,7 +3232,6 @@ function openPartBPopup(type) {
   const e = document.getElementById('filterEnd').value;
   const filtered = CORP_DETAIL.filter(r => r.cohort >= s && r.cohort <= e);
 
-  const fmtLimit = v => v ? (v >= 10000 ? (v/10000).toLocaleString() + '만' : v.toLocaleString() + '원') : '-';
   const ynBadge = v => v === 'Y' ? '<span class="badge-y">Y</span>' : '<span class="badge-n">N</span>';
 
   const baseCols = [
@@ -3298,7 +3303,6 @@ function openPartAPopup(type) {
   const s = document.getElementById('filterStart').value;
   const e = document.getElementById('filterEnd').value;
   const filtered = FUNNEL_DETAIL.filter(r => r.m >= s && r.m <= e);
-  const fmtLimit = v => v ? (v >= 10000 ? (v/10000).toLocaleString() + '만' : v.toLocaleString() + '원') : '0원';
   const ynBadge = v => v ? '<span class="badge-y">Y</span>' : '<span class="badge-n">N</span>';
 
   const stepLabels = {
@@ -3986,12 +3990,12 @@ function buildSLAChart(filtered) {
   let html = `
     <div style="text-align:center;padding:12px 0 8px;">
       <div style="font-size:11px;color:var(--text-muted);">${latest.label} 평균 소요일 (신청→발급)</div>
-      <div style="font-size:36px;font-weight:700;color:var(--text-main);line-height:1.2;">${latest.total_days?.toFixed(1) ?? '-'}일</div>
+      <div style="font-size:36px;font-weight:700;color:var(--text-strong);line-height:1.2;">${latest.total_days?.toFixed(1) ?? '-'}일</div>
       ${delta !== null ? `<div style="font-size:13px;${deltaColor};margin-top:2px;">${arrow} ${deltaSign}${delta.toFixed(1)}일 vs 전월</div>` : ''}
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">중앙값: ${latest.median_days ?? '-'}일</div>
     </div>
     <div style="border-top:1px solid var(--border);margin:8px 0;"></div>
-    <div style="font-size:12px;font-weight:600;color:var(--text-main);margin-bottom:6px;">단계별 소요일</div>`;
+    <div style="font-size:12px;font-weight:600;color:var(--text-strong);margin-bottom:6px;">단계별 소요일</div>`;
 
   stages.forEach(s => {
     const val = latest[s.key];
@@ -4000,7 +4004,7 @@ function buildSLAChart(filtered) {
     const dStr = d !== null ? `<span style="font-size:10px;${d > 0 ? 'color:#ef4444' : 'color:#10b981'}">${d > 0 ? '+' : ''}${d.toFixed(1)}</span>` : '';
     html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">
       <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${s.color};margin-right:6px;"></span>${s.label}</span>
-      <span style="color:var(--text-main);font-weight:500;">${val?.toFixed(1) ?? '-'}일 ${dStr}</span>
+      <span style="color:var(--text-strong);font-weight:500;">${val?.toFixed(1) ?? '-'}일 ${dStr}</span>
     </div>`;
   });
 
@@ -4012,7 +4016,7 @@ function buildSLAChart(filtered) {
   const itsDStr = itsD !== null ? `<span style="font-size:10px;${itsD > 0 ? 'color:#ef4444' : 'color:#10b981'}">${itsD > 0 ? '+' : ''}${itsD.toFixed(1)}</span>` : '';
   html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;">
     <span style="color:var(--text-muted);">첫결제까지 (발급→결제)</span>
-    <span style="color:var(--text-main);font-weight:500;">${itsVal?.toFixed(1) ?? '-'}일 ${itsDStr}</span>
+    <span style="color:var(--text-strong);font-weight:500;">${itsVal?.toFixed(1) ?? '-'}일 ${itsDStr}</span>
   </div>`;
 
   kpiEl.innerHTML = html;
@@ -4040,7 +4044,7 @@ function buildPartB(filteredUsage) {
   buildHitRateChart(filteredUsage);
   buildCompareCards(filteredUsage, _currentCompareMetric);
   buildSegmentInsight(filteredUsage);
-  buildIndustryChart(filteredUsage);
+  buildIndustryChart();
 }
 
 /* ══════════════════════════════════════════
@@ -4537,11 +4541,11 @@ function deltaCard(label, valA, valB, delta, unit) {
    MOBILE MENU TOGGLE (#9)
 ══════════════════════════════════════════ */
 function toggleMobileMenu() {
-  const btns = document.querySelectorAll('.header-right .header-btn');
-  btns.forEach(b => {
-    b.style.display = b.style.display === 'inline-flex' ? 'none' : 'inline-flex';
-  });
+  document.querySelector('.header-right').classList.toggle('mobile-open');
 }
+window.matchMedia('(min-width: 769px)').addEventListener('change', e => {
+  if (e.matches) document.querySelector('.header-right').classList.remove('mobile-open');
+});
 
 /* ══════════════════════════════════════════
    BUILD ALL CHARTS (for theme change)
