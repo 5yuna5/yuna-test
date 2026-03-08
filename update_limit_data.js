@@ -372,6 +372,8 @@ async function deployToGhPages() {
       console.log('   변경 없음 — push 생략');
     } catch {
       execSync('git commit -m "auto: update limit_increase_dashboard data"', { cwd: projectDir, stdio: 'pipe' });
+      // pull --rebase 후 push (commit 후에 해야 unstaged 충돌 방지)
+      try { execSync('git pull --rebase origin main', { cwd: projectDir, stdio: 'pipe', timeout: 30000 }); } catch {}
       execSync('git push origin main', { cwd: projectDir, stdio: 'pipe', timeout: 30000 });
       console.log('✅ GitHub Pages 배포 완료!');
     }
