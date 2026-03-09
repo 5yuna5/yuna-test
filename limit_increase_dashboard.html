@@ -487,13 +487,6 @@
     <div class="section-title">유형별 퍼널 비교 <span class="badge">한도상향 vs 카드사추가</span></div>
     <div class="type-compare-grid" id="typeComparePanel"></div>
   </div>
-  <!-- ── V2: HEATMAP ── -->
-  <div class="section">
-    <div class="section-title">카드사 × AM 크로스탭 <span class="badge">승인율 히트맵</span></div>
-    <div class="card" style="overflow-x:auto">
-      <table class="data-table" id="heatmapTable"></table>
-    </div>
-  </div>
   <!-- ── V2: WEEKLY TREND ── -->
   <div class="section">
     <div class="section-title">주간 트렌드 <span class="badge">최근 12주</span></div>
@@ -1076,7 +1069,7 @@ function buildMonthlyTable(data) {
     <th>코호트</th><th class="num">신청</th><th class="num">신청서 제출</th>
     <th class="num">카드사 접수</th><th class="num">최종 승인</th>
     <th class="num">고위드 부결</th><th class="num">카드사 부결</th>
-    <th class="num">진행중</th><th class="num">승인율</th>
+    <th class="num">진행중</th><th class="num">승인율 (MoM)</th>
     <th class="num" title="f2/f1">제출율</th><th class="num" title="f3/f2">접수율</th><th class="num" title="f4/f3">최종율</th><!-- conversionCols__PATCHED -->
     <th class="num">한도상향</th><th class="num">카드사추가</th>
   </tr></thead><tbody>`;
@@ -1938,7 +1931,7 @@ function buildAll(filtered) {
   buildMonthlyTable(data);
   buildCardCoTable();
   buildTypeCompare();
-  buildHeatmap();
+
   buildWeeklyChart();
   buildAMTable();
   buildInsights(data, slaData);
@@ -2023,7 +2016,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUpdateM
           <li>월별 퍼널 MoM 전환율 변화 표시 (▲/▼)</li>
           <li>건별 상세 법인명 클릭 → 타임라인 팝업</li>
           <li>AM별 인라인 미니 바 차트</li>
-          <li>카드사 × AM 크로스탭 히트맵</li>
           <li>한도상향 vs 카드사추가 퍼널 비교 뷰</li>
           <li>주간 트렌드 차트</li>
           <li>부결 상세 분석 인사이트</li>
