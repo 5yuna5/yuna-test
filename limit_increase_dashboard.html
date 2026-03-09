@@ -530,7 +530,8 @@ function populateDropdowns() {
   }
   // AM dropdown
   const amSel = document.getElementById('filterAM');
-  const ams = [...new Set(RECORD_DATA.map(r => r.am).filter(a => a))].sort();
+  const AM_EXCLUDE = ['옥래협'];
+  const ams = [...new Set(RECORD_DATA.map(r => r.am).filter(a => a && !AM_EXCLUDE.includes(a)))].sort();
   ams.forEach(a => amSel.add(new Option(a, a)));
   // Card company dropdown<!-- filterCardCo__POPULATE__PATCHED -->
   const ccSel = document.getElementById('filterCardCo');
@@ -1458,7 +1459,8 @@ function buildInsights(data, slaData) {
 function buildAMTable() {
   const el = document.getElementById('amTable');
   if (!el) return;
-  const recs = getFilteredRecords();
+  const AM_EXCLUDE = ['옥래협'];
+  const recs = getFilteredRecords().filter(r => !AM_EXCLUDE.includes(r.am));
   const map = {};
   recs.forEach(r => {
     const key = r.am || '미배정';
