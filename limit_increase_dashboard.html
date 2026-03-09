@@ -835,7 +835,7 @@ function buildFunnel(data) {
   if (notSubmitted.length > 0) {
     const nsPct = Math.max(Math.round(notSubmitted.length / max * 100), 1);
     html += `
-      <div class="funnel-step" style="margin-top:8px;opacity:0.85;cursor:default">
+      <div class="funnel-step" style="margin-top:8px;cursor:default">
         <div class="step-label" style="color:#f59e0b;font-weight:600">승인 미제출<span class="info-icon">i<div class="info-popup"><strong>승인 미제출이란?</strong><br>고위드가 승인(또는 특별심사 중간 승인)했지만 아직 카드사에 제출되지 않은 건입니다.<br><br><span class="info-type auto">자동심사</span> 고위드 승인 후 고객의 전자서명 대기 중<br><span class="info-type special">특별심사</span> 심사 진행 중, 최종 결정 전이라 서명 불가<br><br>고객이 전자서명을 완료하면 자동으로 카드사에 제출되어 퍼널에 반영됩니다.</div></span></div>
         <div class="step-bar-wrap">
           <div class="step-bar" style="width:${nsPct}%;background:linear-gradient(90deg,#f59e0b,#fbbf24)">${nsPct}%</div>
@@ -850,7 +850,7 @@ function buildFunnel(data) {
   const cardRejects = recs.filter(r => r.cr);
 
   html += `
-    <div class="funnel-step" style="margin-top:8px;opacity:0.7;cursor:default">
+    <div class="funnel-step" style="margin-top:8px;cursor:default">
       <div class="step-label" style="color:var(--accent)">고위드 부결</div>
       <div class="step-bar-wrap">
         <div class="step-bar" style="width:${Math.round(t.rej/max*100)}%;background:var(--accent)">${Math.round(t.rej/max*100)}%</div>
@@ -859,7 +859,7 @@ function buildFunnel(data) {
       <div class="step-rate">${Math.round(t.rej/max*1000)/10}%</div>
       ${stepTooltip(gowidRejects, '고위드 부결 고객')}
     </div>
-    <div class="funnel-step" style="opacity:0.7;cursor:default">
+    <div class="funnel-step" style="cursor:default">
       <div class="step-label" style="color:var(--orange)">카드사 부결</div>
       <div class="step-bar-wrap">
         <div class="step-bar" style="width:${Math.max(Math.round(t.crej/max*100),1)}%;background:var(--orange)">${Math.round(t.crej/max*100)}%</div>
