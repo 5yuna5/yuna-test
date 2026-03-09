@@ -254,7 +254,7 @@ async function fetchRecordData() {
   console.log('  [5/5] RECORD_DATA 조회 중...');
   const rows = await query(`
     SELECT
-      FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
+      FORMAT_DATETIME('%Y-%m-%d', a.initialized_at) AS date,
       a.corp_name,
       a.application_type AS type,
       a.card_company_name AS card_co,
@@ -299,7 +299,7 @@ async function fetchRecordData() {
   `);
 
   return rows.map(r => ({
-    m: r.month,
+    d: r.date,
     c: r.corp_name,
     t: r.type === '한도상향' ? '상향' : '추가',
     cc: r.card_co || '',
