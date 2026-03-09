@@ -153,7 +153,7 @@ async function fetchSLAData() {
   }));
 }
 
-// ─── 3. DETAIL_DATA: 건별 상세 (최근 3개월) ───
+// ─── 3. DETAIL_DATA: 건별 상세 (전체 기간) ───
 async function fetchDetailData() {
   console.log('  [3/4] DETAIL_DATA 조회 중...');
   const rows = await query(`
@@ -177,9 +177,17 @@ async function fetchDetailData() {
       FORMAT_DATETIME('%Y-%m-%d', a.card_co_rejected_at) AS card_rejected_date,
       a.total_review_duration AS total_days,
       FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
-      IFNULL(c.assigned_am, '') AS assigned_am
+      IFNULL(c.assigned_am, '') AS assigned_am,
+      -- V2.1: 신한카드 주주명부 수취 여부
+      CASE WHEN a.card_company_name = '신한카드' THEN IFNULL(cr.isHeldShareholderList, 0) ELSE NULL END AS shareholder
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    LEFT JOIN (
+        SELECT idxCorp, isHeldShareholderList
+        FROM \`gowid-prd.ods_stream_gowid.CorpRisk\`
+        WHERE isDeleted = 0
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY idxCorp ORDER BY updatedAt DESC) = 1
+      ) cr ON c.gowid_corp_idx = cr.idxCorp
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -205,6 +213,7 @@ async function fetchDetailData() {
     card_reject: r.card_rejected_date,
     total: Number(r.total_days || 0),
     am: r.assigned_am || '',
+    sh: r.shareholder != null ? Number(r.shareholder) : null,
   }));
 }
 
@@ -250,6 +259,7 @@ async function fetchRecordData() {
       a.application_type AS type,
       a.card_company_name AS card_co,
       IFNULL(c.assigned_am, '') AS am,
+      a.gowid_status AS gs,
       CASE WHEN a.gowid_approved_at IS NOT NULL AND a.gowid_rejected_at IS NULL THEN 1 ELSE 0 END AS ga,
       CASE WHEN a.application_submitted_at IS NOT NULL THEN 1 ELSE 0 END AS f2,
       CASE WHEN a.card_co_pending_at IS NOT NULL AND a.gowid_rejected_at IS NULL THEN 1 ELSE 0 END AS f3,
@@ -272,9 +282,17 @@ async function fetchRecordData() {
       CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
       CASE WHEN a.is_net_gowid_review_duration_over THEN 1 ELSE 0 END AS go,
       CASE WHEN a.is_application_submit_duration_over THEN 1 ELSE 0 END AS so,
-      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co
+      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co,
+      -- V2.1: 신한카드 주주명부 수취 여부
+      CASE WHEN a.card_company_name = '신한카드' AND cr.isHeldShareholderList = 1 THEN 1 ELSE 0 END AS sh
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    LEFT JOIN (
+        SELECT idxCorp, isHeldShareholderList
+        FROM \`gowid-prd.ods_stream_gowid.CorpRisk\`
+        WHERE isDeleted = 0
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY idxCorp ORDER BY updatedAt DESC) = 1
+      ) cr ON c.gowid_corp_idx = cr.idxCorp
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -286,6 +304,7 @@ async function fetchRecordData() {
     t: r.type === '한도상향' ? '상향' : '추가',
     cc: r.card_co || '',
     am: r.am,
+    gs: r.gs === '고위드 특별심사' ? '특별' : '자동',
     ga: Number(r.ga), f2: Number(r.f2), f3: Number(r.f3), f4: Number(r.f4),
     rj: Number(r.rj), cr: Number(r.cr), cn: Number(r.cn), ip: Number(r.ip),
     al: Number(r.al), cl: Number(r.cl), rl: Number(r.rl),
@@ -296,6 +315,7 @@ async function fetchRecordData() {
     sd: r.sd != null ? Number(r.sd) : null,
     done: Number(r.done),
     lo: Number(r.lo), go: Number(r.go), so: Number(r.so), co: Number(r.co),
+    sh: Number(r.sh),
   }));
 }
 
@@ -325,7 +345,7 @@ function updateTimestamp(html) {
 async function main() {
   console.log('🔄 한도상향/카드사추가 퍼널 데이터 업데이트 시작\n');
 
-  const [funnel, sla, detail, cardCo, reject] = await Promise.all([
+  const [funnel, sla, detail, cardCo, records] = await Promise.all([
     fetchFunnelData(),
     fetchSLAData(),
     fetchDetailData(),
@@ -336,9 +356,9 @@ async function main() {
   console.log(`\n📊 조회 완료:`);
   console.log(`  FUNNEL_DATA: ${funnel.length}개월`);
   console.log(`  SLA_DATA: ${sla.length}개월`);
-  console.log(`  DETAIL_DATA: ${detail.length}건 (최근 90일)`);
+  console.log(`  DETAIL_DATA: ${detail.length}건 (전체 기간)`);
   console.log(`  CARD_CO_DATA: ${cardCo.length}개 카드사×유형`);
-  console.log(`  RECORD_DATA: ${reject.length}건`);
+  console.log(`  RECORD_DATA: ${records.length}건`);
 
   console.log('\n📝 HTML 파일 업데이트 중...');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
@@ -347,7 +367,7 @@ async function main() {
   html = replaceConst(html, 'SLA_DATA', sla);
   html = replaceConst(html, 'DETAIL_DATA', detail);
   html = replaceConst(html, 'CARD_CO_DATA', cardCo);
-  html = replaceConst(html, 'RECORD_DATA', reject);
+  html = replaceConst(html, 'RECORD_DATA', records);
   html = updateTimestamp(html);
 
   fs.writeFileSync(HTML_FILE, html);
