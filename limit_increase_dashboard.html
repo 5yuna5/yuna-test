@@ -62,6 +62,20 @@
       transition: background 0.3s, color 0.3s;
     }
 
+    /* ── NAV TABS ── */
+    .nav-tabs {
+      display: flex; gap: 0; background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-strong);
+      padding: 0 32px;
+    }
+    .nav-tabs a {
+      display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 600;
+      color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .nav-tabs a:hover { color: var(--text-strong); background: var(--primary-dim); }
+    .nav-tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
+
     /* ── HEADER ── */
     header {
       position: sticky; top: 0; z-index: 100;
@@ -386,6 +400,12 @@
 </style>
 </head>
 <body>
+
+<!-- ── NAV TABS ── -->
+<div class="nav-tabs">
+  <a href="card_funnel_dashboard.html">신규 입회 퍼널</a>
+  <a href="limit_increase_dashboard.html" class="active">한도상향 퍼널</a>
+</div>
 
 <header>
   <div class="header-left">
