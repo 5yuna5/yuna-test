@@ -28,83 +28,141 @@ async function query(sql) {
 async function fetchRecordData() {
   console.log('  [1/1] RECORD_DATA 조회 중...');
   const rows = await query(`
-    WITH funnel AS (
-      SELECT
-        FORMAT_DATE('%Y-%m-%d', f.card_application_submitted_at) AS date,
-        f.corp_id,
-        f.corp_name,
-        1 AS sub,
-        CASE WHEN f.card_application_approved_at IS NOT NULL THEN 1 ELSE 0 END AS apr,
-        CASE WHEN f.signup_at IS NOT NULL THEN 1 ELSE 0 END AS sig,
-        CASE WHEN f.first_limit_start_init IS NOT NULL THEN 1 ELSE 0 END AS ls,
-        CASE WHEN f.first_limit_progress_after_init IS NOT NULL THEN 1 ELSE 0 END AS lp,
-        CASE WHEN f.first_limit_result_at IS NOT NULL THEN 1 ELSE 0 END AS lr,
-        CASE WHEN f.first_limit_result_amount > 0 THEN 1 ELSE 0 END AS lnz,
-        CASE WHEN f.first_limit_result_at IS NOT NULL AND f.first_limit_result_amount = 0 THEN 1 ELSE 0 END AS lz,
-        CASE WHEN f.first_card_info_created_at IS NOT NULL THEN 1 ELSE 0 END AS ci,
-        CASE WHEN f.first_card_applied_at IS NOT NULL THEN 1 ELSE 0 END AS ca,
-        CASE WHEN f.first_card_issued_at IS NOT NULL THEN 1 ELSE 0 END AS cd,
-        CASE WHEN f.first_spend_at IS NOT NULL THEN 1 ELSE 0 END AS fs,
-        -- SLA (일 단위)
-        GREATEST(f.days_card_application_submitted_to_approved, 0) AS d1,
-        CASE WHEN f.signup_at IS NOT NULL AND f.card_application_approved_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(f.signup_at, f.card_application_approved_at, DAY), 0) END AS d2,
-        CASE WHEN f.first_limit_result_at IS NOT NULL AND f.signup_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(f.first_limit_result_at, f.signup_at, DAY), 0) END AS d3,
-        CASE WHEN f.first_card_issued_at IS NOT NULL AND f.first_limit_result_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(f.first_card_issued_at, f.first_limit_result_at, DAY), 0) END AS d4,
-        CASE WHEN f.first_card_issued_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(f.first_card_issued_at, f.card_application_submitted_at, DAY), 0) END AS dt,
-        CASE WHEN f.first_spend_at IS NOT NULL AND f.first_card_issued_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(f.first_spend_at, f.first_card_issued_at, DAY), 0) END AS d5,
-        FORMAT_DATE('%Y-%m-%d', f.first_card_issued_at) AS issued_date
-      FROM \`gowid-prd.mart_limit_application.card_application_funnel\` f
-      WHERE f.card_application_submitted_at >= '2025-01-01'
+    WITH corp_ods AS (
+      SELECT c.idx AS corp_idx,
+        REPLACE(c.resCompanyIdentityNo, '-', '') AS brn_key,
+        c.createdAt AS corp_created_at
+      FROM \`gowid-prd.ods_stream_gowid.Corp\` c
+      WHERE c.resCompanyIdentityNo IS NOT NULL
     ),
-    -- card_application 뷰에서만 있는 레코드 추가 (funnel 테이블에 없는 초기 이탈건)
-    top_only AS (
+    latest_app AS (
       SELECT
-        FORMAT_DATE('%Y-%m-%d', ca.card_application_submitted_at) AS date,
-        ca.corp_id,
-        ca.corp_name,
-        1 AS sub,
-        CASE WHEN ca.card_application_review_status = '승인' THEN 1 ELSE 0 END AS apr,
-        CASE WHEN ca.funnel = '회원가입' THEN 1 ELSE 0 END AS sig,
-        0 AS ls, 0 AS lp, 0 AS lr, 0 AS lnz, 0 AS lz,
-        0 AS ci, 0 AS ca_flag, 0 AS cd, 0 AS fs,
-        CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
-        CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
-        CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
-        CAST(NULL AS STRING) AS issued_date
-      FROM \`gowid-prd.mart_limit_application.card_application\` ca
-      WHERE ca.card_application_submitted_at >= '2025-01-01'
-        AND ca.corp_id NOT IN (
-          SELECT corp_id FROM \`gowid-prd.mart_limit_application.card_application_funnel\`
-          WHERE card_application_submitted_at >= '2025-01-01'
-        )
+        REPLACE(ca.businessRegistrationNumber, '-', '') AS brn_key,
+        ca.reviewStatus,
+        ca.createdAt AS application_created_at,
+        ca.updatedAt AS application_updated_at
+      FROM \`gowid-prd.ods_stream_gowid.CardApplication\` ca
+      WHERE ca.businessRegistrationNumber IS NOT NULL
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY REPLACE(ca.businessRegistrationNumber, '-', '')
+        ORDER BY ca.createdAt DESC
+      ) = 1
     ),
-    combined AS (
-      SELECT * FROM funnel
-      UNION ALL
-      SELECT date, corp_id, corp_name, sub, apr, sig, ls, lp, lr, lnz, lz, ci, ca_flag AS ca, cd, fs, d1, d2, d3, d4, dt, d5, issued_date
-      FROM top_only
+    cohort AS (
+      SELECT brn_key,
+        DATE(application_created_at) AS cohort_date,
+        application_created_at AS latest_application_created_at,
+        (reviewStatus = 'SUITABLE') AS is_approved,
+        CASE WHEN reviewStatus = 'SUITABLE' THEN application_updated_at END AS latest_approved_at
+      FROM latest_app
+      WHERE DATE(application_created_at) >= DATE '2025-01-01'
+    ),
+    corp_map_after_app AS (
+      SELECT c.brn_key,
+        MIN(IF(o.corp_created_at >= c.latest_application_created_at, o.corp_created_at, NULL)) AS signup_at
+      FROM cohort c LEFT JOIN corp_ods o ON c.brn_key = o.brn_key
+      GROUP BY c.brn_key
+    ),
+    limit_flow_after_app AS (
+      SELECT c.brn_key,
+        MIN(IF(la.applicationType='JOIN' AND la.isNewCorp=1 AND la.status='INIT'
+          AND la.updatedAt >= c.latest_application_created_at, la.updatedAt, NULL)) AS limit_start,
+        MIN(IF(la.applicationType='JOIN' AND la.isNewCorp=1 AND la.status<>'INIT'
+          AND la.updatedAt >= c.latest_application_created_at, la.updatedAt, NULL)) AS limit_progress
+      FROM cohort c LEFT JOIN corp_ods o ON c.brn_key = o.brn_key
+      LEFT JOIN \`gowid-prd.ods_stream_gowid.LimitApplication\` la ON la.idxCorp = o.corp_idx
+      GROUP BY c.brn_key
+    ),
+    first_limit_result AS (
+      SELECT c.brn_key,
+        ARRAY_AGG(
+          STRUCT(la.updatedAt AS lr_at, la.totalLimitAmount AS lr_amount)
+          ORDER BY la.updatedAt ASC LIMIT 1
+        )[OFFSET(0)].*
+      FROM cohort c LEFT JOIN corp_ods o ON c.brn_key = o.brn_key
+      LEFT JOIN \`gowid-prd.ods_stream_gowid.LimitApplication\` la ON la.idxCorp = o.corp_idx
+      WHERE la.applicationType = 'JOIN' AND la.isNewCorp = 1
+        AND la.totalLimitAmount IS NOT NULL
+        AND la.updatedAt >= c.latest_application_created_at
+      GROUP BY c.brn_key
+    ),
+    card_info_after_app AS (
+      SELECT c.brn_key,
+        MIN(IF(ci.createdAt >= c.latest_application_created_at, ci.createdAt, NULL)) AS ci_created,
+        MIN(IF(ci.appliedAt >= c.latest_application_created_at, ci.appliedAt, NULL)) AS ci_applied,
+        MIN(IF(ci.issuedAt >= c.latest_application_created_at, ci.issuedAt, NULL)) AS ci_issued
+      FROM cohort c LEFT JOIN corp_ods o ON c.brn_key = o.brn_key
+      LEFT JOIN \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci ON ci.idxCorp = o.corp_idx
+      GROUP BY c.brn_key
+    ),
+    corp_dim_after_app AS (
+      SELECT c.brn_key,
+        MIN(IF(d.first_card_spend_at >= c.latest_application_created_at, d.first_card_spend_at, NULL)) AS first_spend
+      FROM cohort c LEFT JOIN \`gowid-prd.dw_dimension.corporation\` d ON CAST(d.corp_id AS STRING) = c.brn_key
+      GROUP BY c.brn_key
+    ),
+    -- AM 매핑: brn_key → corp_id → assigned_am
+    am_map AS (
+      SELECT CAST(d.corp_id AS STRING) AS brn_key, d.assigned_am
+      FROM \`gowid-prd.dw_dimension.corporation\` d
+      WHERE d.assigned_am IS NOT NULL AND d.assigned_am != ''
+    ),
+    -- 법인명 매핑
+    corp_name_map AS (
+      SELECT REPLACE(c.resCompanyIdentityNo, '-', '') AS brn_key,
+        ARRAY_AGG(c.resCompanyNm ORDER BY c.createdAt DESC LIMIT 1)[OFFSET(0)] AS corp_name
+      FROM \`gowid-prd.ods_stream_gowid.Corp\` c
+      WHERE c.resCompanyIdentityNo IS NOT NULL
+      GROUP BY 1
+    ),
+    base AS (
+      SELECT
+        FORMAT_DATE('%Y-%m-%d', c.cohort_date) AS submit_date,
+        c.brn_key,
+        IFNULL(cn.corp_name, c.brn_key) AS corp_name,
+        IFNULL(am.assigned_am, '') AS am,
+        -- 퍼널 플래그
+        1 AS sub,
+        CASE WHEN c.is_approved THEN 1 ELSE 0 END AS apr,
+        CASE WHEN m.signup_at IS NOT NULL THEN 1 ELSE 0 END AS sig,
+        CASE WHEN lf.limit_start IS NOT NULL THEN 1 ELSE 0 END AS ls,
+        CASE WHEN lf.limit_progress IS NOT NULL THEN 1 ELSE 0 END AS lp,
+        CASE WHEN lr.lr_at IS NOT NULL THEN 1 ELSE 0 END AS lr,
+        CASE WHEN lr.lr_amount IS NOT NULL AND lr.lr_amount <> 0 THEN 1 ELSE 0 END AS lnz,
+        CASE WHEN lr.lr_amount IS NOT NULL AND lr.lr_amount = 0 THEN 1 ELSE 0 END AS lz,
+        CASE WHEN ci.ci_created IS NOT NULL THEN 1 ELSE 0 END AS ci,
+        CASE WHEN ci.ci_applied IS NOT NULL THEN 1 ELSE 0 END AS ca,
+        CASE WHEN ci.ci_issued IS NOT NULL THEN 1 ELSE 0 END AS cd,
+        CASE WHEN cd.first_spend IS NOT NULL THEN 1 ELSE 0 END AS fs,
+        -- 발급일
+        FORMAT_DATE('%Y-%m-%d', DATE(ci.ci_issued)) AS issued_date,
+        -- SLA
+        CASE WHEN c.latest_approved_at IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(c.latest_approved_at, c.latest_application_created_at, DAY), 0) END AS d1,
+        CASE WHEN m.signup_at IS NOT NULL AND c.latest_approved_at IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(m.signup_at, c.latest_approved_at, DAY), 0) END AS d2,
+        CASE WHEN lr.lr_at IS NOT NULL AND m.signup_at IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(lr.lr_at, m.signup_at, DAY), 0) END AS d3,
+        CASE WHEN ci.ci_issued IS NOT NULL AND lr.lr_at IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(ci.ci_issued, lr.lr_at, DAY), 0) END AS d4,
+        CASE WHEN ci.ci_issued IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(ci.ci_issued, c.latest_application_created_at, DAY), 0) END AS dt,
+        CASE WHEN cd.first_spend IS NOT NULL AND ci.ci_issued IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, DAY), 0) END AS d5
+      FROM cohort c
+      LEFT JOIN corp_map_after_app m USING (brn_key)
+      LEFT JOIN limit_flow_after_app lf USING (brn_key)
+      LEFT JOIN first_limit_result lr USING (brn_key)
+      LEFT JOIN card_info_after_app ci USING (brn_key)
+      LEFT JOIN corp_dim_after_app cd USING (brn_key)
+      LEFT JOIN am_map am USING (brn_key)
+      LEFT JOIN corp_name_map cn USING (brn_key)
     )
-    SELECT
-      c.date,
-      c.corp_name,
-      c.corp_id,
-      IFNULL(co.assigned_am, '') AS am,
-      c.sub, c.apr, c.sig, c.ls, c.lp, c.lr, c.lnz, c.lz,
-      c.ci, c.ca, c.cd, c.fs,
-      c.d1, c.d2, c.d3, c.d4, c.dt, c.d5,
-      c.issued_date
-    FROM combined c
-    LEFT JOIN \`gowid-prd.dw_dimension.corporation\` co ON c.corp_id = co.corp_id
-    ORDER BY c.date DESC
+    SELECT * FROM base ORDER BY submit_date DESC
   `);
 
   return rows.map(r => ({
-    d: r.date,
+    d: r.submit_date,
     c: r.corp_name,
     am: r.am || '',
     sub: Number(r.sub), apr: Number(r.apr), sig: Number(r.sig),
