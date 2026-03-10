@@ -177,17 +177,9 @@ async function fetchDetailData() {
       FORMAT_DATETIME('%Y-%m-%d', a.card_co_rejected_at) AS card_rejected_date,
       a.total_review_duration AS total_days,
       FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
-      IFNULL(c.assigned_am, '') AS assigned_am,
-      -- V2.1: 신한카드 주주명부 수취 여부
-      CASE WHEN a.card_company_name = '신한카드' THEN IFNULL(cr.isHeldShareholderList, 0) ELSE NULL END AS shareholder
+      IFNULL(c.assigned_am, '') AS assigned_am
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
-    LEFT JOIN (
-        SELECT idxCorp, isHeldShareholderList
-        FROM \`gowid-prd.ods_stream_gowid.CorpRisk\`
-        WHERE isDeleted = 0
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY idxCorp ORDER BY updatedAt DESC) = 1
-      ) cr ON c.gowid_corp_idx = cr.idxCorp
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -213,7 +205,6 @@ async function fetchDetailData() {
     card_reject: r.card_rejected_date,
     total: Number(r.total_days || 0),
     am: r.assigned_am || '',
-    sh: r.shareholder != null ? Number(r.shareholder) : null,
   }));
 }
 
@@ -282,17 +273,9 @@ async function fetchRecordData() {
       CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
       CASE WHEN a.is_net_gowid_review_duration_over THEN 1 ELSE 0 END AS go,
       CASE WHEN a.is_application_submit_duration_over THEN 1 ELSE 0 END AS so,
-      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co,
-      -- V2.1: 신한카드 주주명부 수취 여부
-      CASE WHEN a.card_company_name = '신한카드' AND cr.isHeldShareholderList = 1 THEN 1 ELSE 0 END AS sh
+      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
-    LEFT JOIN (
-        SELECT idxCorp, isHeldShareholderList
-        FROM \`gowid-prd.ods_stream_gowid.CorpRisk\`
-        WHERE isDeleted = 0
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY idxCorp ORDER BY updatedAt DESC) = 1
-      ) cr ON c.gowid_corp_idx = cr.idxCorp
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -315,7 +298,6 @@ async function fetchRecordData() {
     sd: r.sd != null ? Number(r.sd) : null,
     done: Number(r.done),
     lo: Number(r.lo), go: Number(r.go), so: Number(r.so), co: Number(r.co),
-    sh: Number(r.sh),
   }));
 }
 
