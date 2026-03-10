@@ -382,22 +382,79 @@ async function main() {
 async function deployToGhPages() {
   const { execSync } = require('child_process');
   const projectDir = __dirname;
+  const run = (cmd, opts) =>
+    execSync(cmd, { cwd: projectDir, stdio: 'pipe', timeout: 30000, ...opts });
 
   try {
     console.log('\n🚀 GitHub Pages 배포 중...');
 
-    execSync('git add limit_increase_dashboard.html', { cwd: projectDir, stdio: 'pipe' });
+    run('git add limit_increase_dashboard.html update_limit_data.js');
 
     try {
-      execSync('git diff --cached --quiet', { cwd: projectDir, stdio: 'pipe' });
+      run('git diff --cached --quiet');
       console.log('   변경 없음 — push 생략');
+      return;
     } catch {
-      execSync('git commit -m "auto: update limit_increase_dashboard data"', { cwd: projectDir, stdio: 'pipe' });
-      // pull --rebase 후 push (commit 후에 해야 unstaged 충돌 방지)
-      try { execSync('git pull --rebase origin main', { cwd: projectDir, stdio: 'pipe', timeout: 30000 }); } catch {}
-      execSync('git push origin main', { cwd: projectDir, stdio: 'pipe', timeout: 30000 });
-      console.log('✅ GitHub Pages 배포 완료!');
+      // 변경 있음 — 계속 진행
     }
+
+    run('git commit -m "auto: update limit_increase_dashboard data"');
+
+    // pull --rebase 시도, 충돌 시 자동 해결
+    try {
+      run('git pull --rebase origin main');
+    } catch {
+      console.log('   ⚠ rebase 충돌 — 자동 해결 시도...');
+      try {
+        const status = run('git status --porcelain').toString();
+        const conflicted = status
+          .split('\n')
+          .filter((l) => l.startsWith('UU ') || l.startsWith('AA '))
+          .map((l) => l.slice(3).trim());
+        for (const f of conflicted) {
+          if (
+            f === 'limit_increase_dashboard.html' ||
+            f === 'update_limit_data.js'
+          ) {
+            run('git checkout --ours "' + f + '"');
+          } else {
+            run('git checkout --theirs "' + f + '"');
+          }
+          run('git add "' + f + '"');
+        }
+        run('git rebase --continue', {
+          env: { ...process.env, GIT_EDITOR: 'true' },
+        });
+        console.log('   ✅ 충돌 자동 해결');
+      } catch {
+        // 자동 해결 실패 → reset 후 재커밋
+        console.log('   ⚠ 자동 해결 실패 — reset 후 재시도...');
+        try {
+          run('git rebase --abort');
+        } catch {
+          // abort도 실패하면 무시
+        }
+        const htmlPath = require('path').join(
+          projectDir,
+          'limit_increase_dashboard.html',
+        );
+        const jsPath = require('path').join(
+          projectDir,
+          'update_limit_data.js',
+        );
+        const htmlBackup = require('fs').readFileSync(htmlPath);
+        const jsBackup = require('fs').readFileSync(jsPath);
+        run('git reset --hard origin/main');
+        require('fs').writeFileSync(htmlPath, htmlBackup);
+        require('fs').writeFileSync(jsPath, jsBackup);
+        run('git add limit_increase_dashboard.html update_limit_data.js');
+        run('git commit -m "auto: update limit_increase_dashboard data"');
+        console.log('   ✅ reset 후 재커밋 완료');
+      }
+    }
+
+    run('git push origin main');
+    console.log('✅ GitHub Pages 배포 완료!');
   } catch (err) {
     console.error('⚠ GitHub Pages 배포 실패:', err.message);
   }
