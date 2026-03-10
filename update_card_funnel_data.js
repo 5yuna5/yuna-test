@@ -56,7 +56,8 @@ async function fetchRecordData() {
         CASE WHEN f.first_card_issued_at IS NOT NULL
           THEN GREATEST(DATETIME_DIFF(f.first_card_issued_at, f.card_application_submitted_at, DAY), 0) END AS dt,
         CASE WHEN f.first_spend_at IS NOT NULL AND f.first_card_issued_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(f.first_spend_at, f.first_card_issued_at, DAY), 0) END AS d5
+          THEN GREATEST(DATETIME_DIFF(f.first_spend_at, f.first_card_issued_at, DAY), 0) END AS d5,
+        FORMAT_DATE('%Y-%m-%d', f.first_card_issued_at) AS issued_date
       FROM \`gowid-prd.mart_limit_application.card_application_funnel\` f
       WHERE f.card_application_submitted_at >= '2025-01-01'
     ),
@@ -73,7 +74,8 @@ async function fetchRecordData() {
         0 AS ci, 0 AS ca_flag, 0 AS cd, 0 AS fs,
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
-        CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5
+        CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
+        CAST(NULL AS STRING) AS issued_date
       FROM \`gowid-prd.mart_limit_application.card_application\` ca
       WHERE ca.card_application_submitted_at >= '2025-01-01'
         AND ca.corp_id NOT IN (
@@ -84,7 +86,7 @@ async function fetchRecordData() {
     combined AS (
       SELECT * FROM funnel
       UNION ALL
-      SELECT date, corp_id, corp_name, sub, apr, sig, ls, lp, lr, lnz, lz, ci, ca_flag AS ca, cd, fs, d1, d2, d3, d4, dt, d5
+      SELECT date, corp_id, corp_name, sub, apr, sig, ls, lp, lr, lnz, lz, ci, ca_flag AS ca, cd, fs, d1, d2, d3, d4, dt, d5, issued_date
       FROM top_only
     )
     SELECT
@@ -94,7 +96,8 @@ async function fetchRecordData() {
       IFNULL(co.assigned_am, '') AS am,
       c.sub, c.apr, c.sig, c.ls, c.lp, c.lr, c.lnz, c.lz,
       c.ci, c.ca, c.cd, c.fs,
-      c.d1, c.d2, c.d3, c.d4, c.dt, c.d5
+      c.d1, c.d2, c.d3, c.d4, c.dt, c.d5,
+      c.issued_date
     FROM combined c
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` co ON c.corp_id = co.corp_id
     ORDER BY c.date DESC
@@ -114,6 +117,7 @@ async function fetchRecordData() {
     d4: r.d4 != null ? Number(r.d4) : null,
     dt: r.dt != null ? Number(r.dt) : null,
     d5: r.d5 != null ? Number(r.d5) : null,
+    id: r.issued_date || null,
   }));
 }
 
