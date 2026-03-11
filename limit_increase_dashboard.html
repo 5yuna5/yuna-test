@@ -489,7 +489,13 @@
 
   <!-- ── MONTHLY TREND ── -->
   <div class="section">
-    <div class="section-title">월별 추이</div>
+    <div class="section-title">월별 추이 <span class="badge">비교 가능</span></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text-muted)">비교할 월 선택:</span>
+      <div id="monthCheckboxes" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+      <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px;margin-left:4px">전체</button>
+      <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근3개월</button>
+    </div>
     <div class="grid-2">
       <div class="card">
         <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:12px">신청 건수 및 승인율</div>
@@ -499,6 +505,20 @@
         <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:12px">유형별 분포</div>
         <div class="chart-wrap"><canvas id="typeChart"></canvas></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── DAILY TREND ── -->
+  <div class="section">
+    <div class="section-title">일별 전환율 트렌드 <span class="badge" id="dailyPeriodBadge">최근 30일</span></div>
+    <div class="card">
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="tab-btn daily-range-btn" onclick="setDailyRange(7)" style="font-size:11px;padding:2px 8px">7일</button>
+        <button class="tab-btn daily-range-btn active" onclick="setDailyRange(30)" style="font-size:11px;padding:2px 8px">30일</button>
+        <button class="tab-btn daily-range-btn" onclick="setDailyRange(60)" style="font-size:11px;padding:2px 8px">60일</button>
+        <button class="tab-btn daily-range-btn" onclick="setDailyRange(90)" style="font-size:11px;padding:2px 8px">90일</button>
+      </div>
+      <div class="chart-wrap" style="height:280px"><canvas id="dailyTrendChart"></canvas></div>
     </div>
   </div>
 
@@ -1067,6 +1087,176 @@ function getChartColors() {
     grid: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)',
     text: isLight ? '#6b7280' : '#7b8ba3',
   };
+}
+
+// ─── DAILY TREND ───
+let dailyRange = 30;
+
+function setDailyRange(days) {
+  dailyRange = days;
+  document.querySelectorAll('.daily-range-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('dailyPeriodBadge').textContent = '최근 ' + days + '일';
+  buildDailyTrendChart();
+}
+
+function movingAverage(arr, window) {
+  return arr.map((_, i) => {
+    const start = Math.max(0, i - window + 1);
+    const slice = arr.slice(start, i + 1).filter(v => v != null && v > 0);
+    if (slice.length === 0) return null;
+    return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length * 10) / 10;
+  });
+}
+
+function buildDailyTrendChart() {
+  destroyChart('dailyTrend');
+  const c = getChartColors();
+  const recs = getFilteredRecords();
+
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - dailyRange);
+  const startStr = startDate.toISOString().slice(0, 10);
+
+  // Group by date
+  const dateMap = {};
+  recs.forEach(r => {
+    if (!r.d || r.d < startStr) return;
+    if (!dateMap[r.d]) dateMap[r.d] = { total: 0, f2: 0, f3: 0, f4: 0, rj: 0 };
+    const o = dateMap[r.d];
+    o.total++; o.f2 += r.f2; o.f3 += r.f3; o.f4 += r.f4; o.rj += r.rj;
+  });
+
+  // Fill missing dates
+  const dates = [];
+  const d = new Date(startDate);
+  while (d <= today) {
+    dates.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() + 1);
+  }
+
+  const dailyData = dates.map(dt => {
+    const o = dateMap[dt] || { total: 0, f2: 0, f3: 0, f4: 0, rj: 0 };
+    return {
+      date: dt,
+      label: dt.slice(5),
+      total: o.total,
+      submitRate: o.total > 0 ? Math.round(o.f2 / o.total * 1000) / 10 : null,
+      approvalRate: o.total > 0 ? Math.round(o.f4 / o.total * 1000) / 10 : null,
+      rejectRate: o.total > 0 ? Math.round(o.rj / o.total * 1000) / 10 : null,
+    };
+  });
+
+  const ctx = document.getElementById('dailyTrendChart').getContext('2d');
+  chartInstances['dailyTrend'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dailyData.map(d => d.label),
+      datasets: [
+        {
+          label: '일별 신청',
+          data: dailyData.map(d => d.total),
+          type: 'bar',
+          backgroundColor: 'rgba(91,156,246,0.25)',
+          borderColor: 'rgba(91,156,246,0.5)',
+          borderWidth: 1,
+          order: 3,
+          yAxisID: 'y1',
+        },
+        {
+          label: '제출율 (7일 이동평균)',
+          data: movingAverage(dailyData.map(d => d.submitRate), 7),
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.06)',
+          fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, order: 1,
+        },
+        {
+          label: '승인율 (7일 이동평균)',
+          data: movingAverage(dailyData.map(d => d.approvalRate), 7),
+          borderColor: '#34d399',
+          backgroundColor: 'rgba(52,211,153,0.06)',
+          fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, order: 1,
+        },
+        {
+          label: '부결율 (7일 이동평균)',
+          data: movingAverage(dailyData.map(d => d.rejectRate), 7),
+          borderColor: '#f06060',
+          backgroundColor: 'rgba(240,96,96,0.06)',
+          fill: true, tension: 0.3, borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], order: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { color: c.text, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === 'y1') return ctx.dataset.label + ': ' + ctx.parsed.y + '건';
+              return ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '-') + '%';
+            }
+          }
+        },
+      },
+      scales: {
+        y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%', color: c.text, font: { size: 10 } }, grid: { color: c.grid } },
+        y1: { position: 'right', beginAtZero: true, ticks: { color: c.text, font: { size: 10 } }, grid: { display: false } },
+        x: { ticks: { color: c.text, font: { size: 9 }, maxRotation: 45 }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+// ─── MONTHLY COMPARISON ───
+let selectedMonths = new Set();
+
+function buildMonthCheckboxes(data) {
+  const months = data.map(d => d.month);
+  if (selectedMonths.size === 0) months.forEach(m => selectedMonths.add(m));
+
+  const container = document.getElementById('monthCheckboxes');
+  if (!container) return;
+  container.innerHTML = months.map(m => {
+    const checked = selectedMonths.has(m) ? 'checked' : '';
+    const label = m.slice(2).replace('-', '.');
+    return `<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--text);cursor:pointer;background:var(--card);border:1px solid var(--border);border-radius:4px;padding:2px 8px">
+      <input type="checkbox" ${checked} value="${m}" onchange="toggleMonthSelect('${m}', this.checked)" style="width:12px;height:12px;margin:0">
+      ${label}
+    </label>`;
+  }).join('');
+}
+
+function toggleMonthSelect(month, checked) {
+  if (checked) selectedMonths.add(month);
+  else selectedMonths.delete(month);
+  const data = getFilteredData();
+  buildTrendChart(data.filter(d => selectedMonths.has(d.month)));
+  buildTypeChart(data.filter(d => selectedMonths.has(d.month)));
+}
+
+function selectAllMonths() {
+  const data = getFilteredData();
+  selectedMonths.clear();
+  data.forEach(d => selectedMonths.add(d.month));
+  document.querySelectorAll('#monthCheckboxes input[type="checkbox"]').forEach(cb => cb.checked = true);
+  buildTrendChart(data);
+  buildTypeChart(data);
+}
+
+function selectRecentMonths(n) {
+  const data = getFilteredData();
+  selectedMonths.clear();
+  document.querySelectorAll('#monthCheckboxes input[type="checkbox"]').forEach(cb => cb.checked = false);
+  const recent = data.slice(-n);
+  recent.forEach(d => selectedMonths.add(d.month));
+  const checkboxes = [...document.querySelectorAll('#monthCheckboxes input[type="checkbox"]')];
+  checkboxes.slice(-n).forEach(cb => cb.checked = true);
+  buildTrendChart(recent);
+  buildTypeChart(recent);
 }
 
 function buildTrendChart(data) {
@@ -1987,15 +2177,17 @@ function buildAll(filtered) {
   const data = filtered || getFilteredData();
   const slaData = getFilteredSLA();
   buildKPI(data, slaData);
+  buildAlerts();
   buildFunnel(data);
+  buildMonthCheckboxes(data);
   buildTrendChart(data);
   buildTypeChart(data);
+  buildDailyTrendChart();
   buildSLAChart(slaData);
   buildSLAOverChart(slaData);
   buildMonthlyTable(data);
   buildCardCoTable();
   buildTypeCompare();
-
   buildWeeklyChart();
   buildAMTable();
   buildInsights(data, slaData);
@@ -2007,6 +2199,7 @@ function rebuildCharts() {
   const slaData = getFilteredSLA();
   buildTrendChart(data);
   buildTypeChart(data);
+  buildDailyTrendChart();
   buildSLAChart(slaData);
   buildSLAOverChart(slaData);
   buildWeeklyChart();
