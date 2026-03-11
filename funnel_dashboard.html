@@ -2,60 +2,154 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>퍼널 대시보드 | GoWid</title>
   <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
+      --bg: #f1f5f9;
       --bg-secondary: #e8edf4;
       --border-strong: rgba(30,41,59,0.18);
+      --text: #374151;
       --text-muted: #6b7280;
       --text-strong: #0f172a;
       --primary: #3b82f6;
       --primary-dim: rgba(59,130,246,0.08);
+      --accent: #f06060;
+      --success: #34d399;
+      --card: #ffffff;
     }
     html.dark-mode {
+      --bg: #0c1222;
       --bg-secondary: #0f172a;
       --border-strong: rgba(148,163,184,0.22);
+      --text: #cbd5e1;
       --text-muted: #7b8ba3;
       --text-strong: #f1f5f9;
       --primary: #5b9cf6;
       --primary-dim: rgba(91,156,246,0.12);
+      --accent: #f06060;
+      --success: #34d399;
+      --card: #182136;
     }
     body {
       margin: 0; padding: 0;
       font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       background: var(--bg-secondary);
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
     }
-    .nav-tabs {
+
+    /* ── DESKTOP TOP TABS ── */
+    .nav-tabs-top {
       display: flex; gap: 0; background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-strong);
       padding: 0 32px;
+      align-items: center;
     }
-    .nav-tabs a {
+    .nav-tabs-top a {
       display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 600;
       color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent;
       transition: all 0.15s; cursor: pointer;
     }
-    .nav-tabs a:hover { color: var(--text-strong); background: var(--primary-dim); }
-    .nav-tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .nav-tabs-top a:hover { color: var(--text-strong); background: var(--primary-dim); }
+    .nav-tabs-top a.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .nav-tabs-top .refresh-indicator {
+      margin-left: auto; font-size: 11px; color: var(--text-muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .nav-tabs-top .refresh-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* ── MOBILE BOTTOM TAB BAR ── */
+    .bottom-tab-bar {
+      display: none;
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-strong);
+      padding: 0; padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .bottom-tab-bar .tab-items {
+      display: flex; height: 56px;
+    }
+    .bottom-tab-bar a {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-decoration: none; color: var(--text-muted); font-size: 10px; font-weight: 600;
+      gap: 3px; transition: all 0.15s; position: relative;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .bottom-tab-bar a .tab-icon { font-size: 20px; line-height: 1; }
+    .bottom-tab-bar a.active { color: var(--primary); }
+    .bottom-tab-bar a.active::before {
+      content: ''; position: absolute; top: 0; left: 20%; right: 20%;
+      height: 2px; background: var(--primary); border-radius: 0 0 2px 2px;
+    }
+    .bottom-tab-bar a .badge-dot {
+      position: absolute; top: 6px; right: calc(50% - 18px);
+      width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+      border: 2px solid var(--bg-secondary);
+    }
+
+    /* ── IFRAME ── */
     iframe {
       width: 100%; border: none;
       height: calc(100vh - 42px);
     }
-    @media (max-width: 600px) {
-      .nav-tabs { padding: 0 12px; }
-      .nav-tabs a { padding: 8px 16px; font-size: 12px; }
+
+    /* ── MOBILE LAYOUT ── */
+    @media (max-width: 768px) {
+      .nav-tabs-top { display: none; }
+      .bottom-tab-bar { display: block; }
+      iframe {
+        height: calc(100vh - 56px - env(safe-area-inset-bottom, 0));
+      }
     }
+
+    /* ── SWIPE HINT ── */
+    .swipe-hint {
+      display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7); color: #fff; padding: 12px 24px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; z-index: 10000; pointer-events: none;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .swipe-hint.show { opacity: 1; }
   </style>
 </head>
 <body>
 
-<div class="nav-tabs" id="navTabs">
+<!-- Desktop top tabs -->
+<div class="nav-tabs-top" id="navTabs">
   <a data-tab="card" class="active" onclick="switchTab('card')">신규 입회 퍼널</a>
   <a data-tab="limit" onclick="switchTab('limit')">한도상향 퍼널</a>
+  <div class="refresh-indicator">
+    <span class="refresh-dot"></span>
+    <span id="lastRefresh">자동 갱신 30분</span>
+  </div>
 </div>
+
+<!-- Mobile bottom tab bar -->
+<div class="bottom-tab-bar" id="bottomTabs">
+  <div class="tab-items">
+    <a data-tab="card" class="active" onclick="switchTab('card')">
+      <span class="tab-icon">📋</span>
+      신규 입회
+    </a>
+    <a data-tab="limit" onclick="switchTab('limit')">
+      <span class="tab-icon">📈</span>
+      한도상향
+    </a>
+  </div>
+</div>
+
+<!-- Swipe hint -->
+<div class="swipe-hint" id="swipeHint"></div>
 
 <iframe id="dashboardFrame" src="card_funnel_dashboard.html?embedded=1"></iframe>
 
@@ -64,21 +158,26 @@
     card: 'card_funnel_dashboard.html',
     limit: 'limit_increase_dashboard.html'
   };
+  const TAB_ORDER = ['card', 'limit'];
+  let currentTab = 'card';
 
   function switchTab(tab) {
+    if (tab === currentTab) return;
+    currentTab = tab;
     const frame = document.getElementById('dashboardFrame');
     frame.src = PAGES[tab] + '?embedded=1';
-    document.querySelectorAll('#navTabs a').forEach(a => {
+    // Update both top and bottom tabs
+    document.querySelectorAll('[data-tab]').forEach(a => {
       a.classList.toggle('active', a.dataset.tab === tab);
     });
     history.replaceState(null, '', '#' + tab);
-    // Sync dark mode to iframe
     syncTheme();
   }
 
   function syncTheme() {
     const isDark = document.documentElement.classList.contains('dark-mode');
     const frame = document.getElementById('dashboardFrame');
+    const prevOnload = frame.onload;
     frame.onload = function() {
       try {
         const doc = frame.contentDocument || frame.contentWindow.document;
@@ -91,29 +190,92 @@
         }
       } catch(e) {}
     };
+    // Also try immediately for cached loads
+    try {
+      const doc = frame.contentDocument || frame.contentWindow.document;
+      if (doc.readyState === 'complete') {
+        if (isDark) {
+          doc.documentElement.classList.add('dark-mode');
+          doc.body.classList.add('dark-mode');
+        }
+      }
+    } catch(e) {}
   }
 
-  // Listen for theme changes from iframe
+  // Listen for messages from iframe
   window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'themeChange') {
+    if (!e.data) return;
+    if (e.data.type === 'themeChange') {
       if (e.data.dark) {
         document.documentElement.classList.add('dark-mode');
       } else {
         document.documentElement.classList.remove('dark-mode');
       }
     }
-  });
-
-  // Init from hash
-  const hash = location.hash.replace('#', '');
-  if (hash === 'limit') switchTab('limit');
-
-  // Auto-resize iframe height
-  window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'resize') {
+    if (e.data.type === 'resize') {
       document.getElementById('dashboardFrame').style.height = e.data.height + 'px';
     }
   });
+
+  // ── SWIPE GESTURE (mobile) ──
+  let touchStartX = 0, touchStartY = 0;
+  document.addEventListener('touchstart', function(e) {
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    const dx = e.changedTouches[0].screenX - touchStartX;
+    const dy = e.changedTouches[0].screenY - touchStartY;
+    if (Math.abs(dx) < 80 || Math.abs(dy) > Math.abs(dx) * 0.5) return;
+    const idx = TAB_ORDER.indexOf(currentTab);
+    if (dx < 0 && idx < TAB_ORDER.length - 1) {
+      switchTab(TAB_ORDER[idx + 1]);
+      showSwipeHint(TAB_ORDER[idx + 1] === 'limit' ? '한도상향 퍼널' : '신규 입회 퍼널');
+    } else if (dx > 0 && idx > 0) {
+      switchTab(TAB_ORDER[idx - 1]);
+      showSwipeHint(TAB_ORDER[idx - 1] === 'card' ? '신규 입회 퍼널' : '한도상향 퍼널');
+    }
+  }, { passive: true });
+
+  function showSwipeHint(text) {
+    const hint = document.getElementById('swipeHint');
+    hint.textContent = text;
+    hint.style.display = 'block';
+    hint.classList.add('show');
+    setTimeout(() => { hint.classList.remove('show'); }, 600);
+    setTimeout(() => { hint.style.display = 'none'; }, 900);
+  }
+
+  // ── AUTO REFRESH ──
+  const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
+  let lastRefreshTime = Date.now();
+
+  function autoRefresh() {
+    const frame = document.getElementById('dashboardFrame');
+    frame.src = frame.src; // reload current tab
+    lastRefreshTime = Date.now();
+    updateRefreshLabel();
+  }
+
+  function updateRefreshLabel() {
+    const elapsed = Math.floor((Date.now() - lastRefreshTime) / 60000);
+    const el = document.getElementById('lastRefresh');
+    if (elapsed < 1) el.textContent = '방금 갱신됨';
+    else el.textContent = elapsed + '분 전 갱신';
+  }
+
+  setInterval(autoRefresh, REFRESH_INTERVAL);
+  setInterval(updateRefreshLabel, 60000);
+
+  // ── INIT ──
+  const hash = location.hash.replace('#', '');
+  if (hash === 'limit') switchTab('limit');
+
+  // Restore theme
+  if (localStorage.getItem('theme') === 'dark') {
+    document.documentElement.classList.add('dark-mode');
+  }
 </script>
 </body>
 </html>

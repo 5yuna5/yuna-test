@@ -263,6 +263,49 @@
 
     /* ── FOOTER ── */
     footer { text-align: center; padding: 24px; font-size: 11px; color: var(--text-muted); }
+
+    /* ── MOBILE ENHANCEMENTS ── */
+    @media (max-width: 768px) {
+      /* Collapsible filter bar */
+      .filter-bar {
+        flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px;
+      }
+      .filter-bar .filter-row {
+        display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      }
+      .filter-bar select, .filter-bar input[type="date"] {
+        font-size: 16px !important; /* Prevents iOS zoom */
+        min-height: 36px; padding: 6px 8px;
+      }
+      .filter-bar .tab-btn {
+        min-height: 36px; min-width: 44px; /* Touch target */
+      }
+      /* Better KPI on mobile */
+      .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+      .kpi-card { padding: 12px !important; }
+      .kpi-card .kpi-value { font-size: 20px !important; }
+      /* Funnel touch targets */
+      .funnel-step { min-height: 36px; }
+      .funnel-step .step-label { width: 80px !important; font-size: 11px !important; }
+      /* SLA grid mobile */
+      .sla-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; }
+      .sla-card { padding: 10px; }
+      .sla-card .sla-value { font-size: 16px; }
+      /* Better table scroll indicator */
+      .table-scroll, [style*="overflow-x"] {
+        position: relative;
+      }
+      .table-scroll::after, [style*="overflow-x"]::after {
+        content: '← 스크롤 →'; position: absolute; bottom: 4px; right: 8px;
+        font-size: 10px; color: var(--text-muted); opacity: 0.6;
+        pointer-events: none;
+      }
+      /* Section padding */
+      .section { margin-bottom: 20px; }
+      .container { padding: 12px !important; }
+      /* Embedded mode: extra bottom padding for bottom tab bar */
+      body.embedded { padding-bottom: 64px; }
+    }
   </style>
 </head>
 <body>
@@ -276,6 +319,7 @@
   // 임베디드 모드: 부모 래퍼에서 로드 시 nav-tabs 숨김
   if (window.location.search.includes('embedded=1')) {
     document.getElementById('navTabsLocal').style.display = 'none';
+    document.body.classList.add('embedded');
   }
 </script>
 
@@ -311,6 +355,9 @@
     <button class="tab-btn" onclick="applyFilter()" style="padding:4px 12px">적용</button>
     <span class="filter-info" id="filterInfo"></span>
   </div>
+
+  <!-- ── RISK ALERTS ── -->
+  <div id="alertPanel" style="margin-bottom:16px"></div>
 
   <!-- ── KPI SUMMARY ── -->
   <div class="section">
@@ -502,11 +549,76 @@ function applyFilter() {
   document.getElementById('periodBadge').textContent = (start && end ? `${start} ~ ${end}` : '전체 기간') + ` (${modeLabel})`;
 
   buildKPIs(funnel);
+  buildAlerts(records);
   buildFunnel(funnel);
   buildTrend(records);
   buildMonthlyTable(records);
   buildSLA(sla);
   buildAMTable(records);
+}
+
+// ─── XSS ESCAPE ───
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ─── RISK ALERTS ───
+function buildAlerts(records) {
+  const today = new Date();
+  const daysDiff = (d) => Math.floor((today - new Date(d)) / 86400000);
+
+  const alerts = [];
+
+  // Check all records (not just filtered)
+  RECORD_DATA.forEach(r => {
+    const days = daysDiff(r.d);
+    if (r.apr && !r.sig && days > 7) {
+      alerts.push({ type: 'danger', label: '승인 후 미가입', corp: r.c, am: r.am || '-', days: days, date: r.d });
+    }
+    if (r.lnz && !r.cd && days > 14) {
+      alerts.push({ type: 'danger', label: '유효한도 후 미발급', corp: r.c, am: r.am || '-', days: days, date: r.d });
+    }
+    if (r.cd && !r.fs && days > 30) {
+      alerts.push({ type: 'warning', label: '발급 후 미사용', corp: r.c, am: r.am || '-', days: days, date: r.d });
+    }
+  });
+
+  const panel = document.getElementById('alertPanel');
+  if (alerts.length === 0) {
+    panel.innerHTML = '<div style="background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:8px;padding:12px 16px;font-size:13px;color:var(--success);font-weight:600">모든 고객이 정상 진행 중입니다</div>';
+    return;
+  }
+
+  const dangers = alerts.filter(a => a.type === 'danger');
+  const warnings = alerts.filter(a => a.type === 'warning');
+
+  let html = '<div style="background:rgba(240,96,96,0.08);border:1px solid rgba(240,96,96,0.25);border-radius:8px;padding:16px;margin-bottom:8px">';
+  html += '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:8px">⚠ 주의 필요 — ' + dangers.length + '건 위험, ' + warnings.length + '건 주의</div>';
+
+  // Show danger alerts (max 10)
+  if (dangers.length > 0) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
+    dangers.slice(0, 10).forEach(a => {
+      html += '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(240,96,96,0.15);border-radius:4px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--accent)">';
+      html += esc(a.corp) + ' <span style="font-weight:400;color:var(--text-muted)">' + esc(a.label) + ' ' + a.days + '일</span>';
+      html += ' <span style="font-size:10px;color:var(--text-muted)">[' + esc(a.am) + ']</span></span>';
+    });
+    if (dangers.length > 10) html += '<span style="font-size:11px;color:var(--text-muted);padding:4px 8px">외 ' + (dangers.length - 10) + '건</span>';
+    html += '</div>';
+  }
+
+  // Show warning alerts (max 5, collapsed)
+  if (warnings.length > 0) {
+    html += '<details style="margin-top:4px"><summary style="font-size:12px;color:var(--text-muted);cursor:pointer">발급 후 미사용 ' + warnings.length + '건</summary>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">';
+    warnings.slice(0, 20).forEach(a => {
+      html += '<span style="display:inline-block;background:rgba(251,191,36,0.15);border-radius:4px;padding:3px 8px;font-size:11px;color:#b45309">';
+      html += esc(a.corp) + ' (' + a.days + '일) [' + esc(a.am) + ']</span>';
+    });
+    if (warnings.length > 20) html += '<span style="font-size:11px;color:var(--text-muted)">외 ' + (warnings.length - 20) + '건</span>';
+    html += '</div></details>';
+  }
+  html += '</div>';
+
+  panel.innerHTML = html;
 }
 
 // ─── KPIs ───
@@ -829,6 +941,11 @@ function init() {
   document.getElementById('filterEnd').addEventListener('change', applyFilter);
 
   applyFilter();
+
+  // Auto-refresh every 30 minutes
+  if (window.location.search.includes('embedded=1')) {
+    setInterval(() => { applyFilter(); }, 30 * 60 * 1000);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

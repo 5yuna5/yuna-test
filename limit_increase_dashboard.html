@@ -397,6 +397,27 @@
       .container { max-width: 100%; padding: 0 8px; }
       .chart-wrap { height: 200px !important; }
     }
+    /* ── MOBILE ENHANCEMENTS ── */
+    @media (max-width: 768px) {
+      .filter-bar {
+        flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px;
+      }
+      .filter-bar select, .filter-bar input[type="date"] {
+        font-size: 16px !important;
+        min-height: 36px; padding: 6px 8px;
+      }
+      .filter-bar .tab-btn {
+        min-height: 36px; min-width: 44px;
+      }
+      .funnel-step { min-height: 36px; }
+      .funnel-step .step-label { width: 70px !important; font-size: 10px !important; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr !important; }
+      .type-compare-grid { grid-template-columns: 1fr !important; }
+      .insight-grid { grid-template-columns: 1fr !important; }
+      .section { margin-bottom: 20px; }
+      .container { padding: 12px !important; }
+      body.embedded { padding-bottom: 64px; }
+    }
 </style>
 </head>
 <body>
@@ -410,6 +431,7 @@
   // 임베디드 모드: 부모 래퍼에서 로드 시 nav-tabs 숨김
   if (window.location.search.includes('embedded=1')) {
     document.getElementById('navTabsLocal').style.display = 'none';
+    document.body.classList.add('embedded');
   }
 </script>
 
@@ -445,6 +467,9 @@
     <button class="tab-btn" onclick="applyFilter()" style="padding:4px 12px">적용</button>
     <span class="filter-info" id="filterInfo"></span>
   </div>
+
+  <!-- ── RISK ALERTS ── -->
+  <div id="alertPanel" style="margin-bottom:16px"></div>
 
   <!-- ── KPI SUMMARY ── -->
   <div class="section">
@@ -723,6 +748,65 @@ function aggregateSLA(recs) {
   });
 }
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function buildAlerts() {
+  const today = new Date();
+  const daysDiff = (d) => Math.floor((today - new Date(d)) / 86400000);
+
+  const alerts = [];
+  RECORD_DATA.forEach(r => {
+    const days = daysDiff(r.d);
+    if (r.f2 && !r.f3 && !r.rj && days > 5) {
+      alerts.push({ type: 'danger', label: '제출 후 미접수', corp: r.n || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
+    }
+    if (r.f3 && !r.f4 && !r.rj && !r.cr && days > 15) {
+      alerts.push({ type: 'danger', label: '카드사 장기 미승인', corp: r.n || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
+    }
+    if (r.f1 && !r.f2 && !r.rj && days > 3) {
+      alerts.push({ type: 'warning', label: '신청 후 미제출', corp: r.n || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
+    }
+  });
+
+  alerts.sort((a, b) => b.days - a.days);
+
+  const panel = document.getElementById('alertPanel');
+  if (alerts.length === 0) {
+    panel.innerHTML = '<div style="background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:8px;padding:12px 16px;font-size:13px;color:var(--success);font-weight:600">모든 건이 정상 진행 중입니다</div>';
+    return;
+  }
+
+  const dangers = alerts.filter(a => a.type === 'danger');
+  const warnings = alerts.filter(a => a.type === 'warning');
+
+  let html = '<div style="background:rgba(240,96,96,0.08);border:1px solid rgba(240,96,96,0.25);border-radius:8px;padding:16px;margin-bottom:8px">';
+  html += '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:10px">⚠ 주의 필요 — 위험 ' + dangers.length + '건, 주의 ' + warnings.length + '건</div>';
+
+  if (dangers.length > 0) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
+    dangers.slice(0, 15).forEach(a => {
+      html += '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(240,96,96,0.15);border-radius:4px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--accent)">';
+      html += esc(a.corp) + ' <span style="font-weight:400;color:var(--text-muted)">' + esc(a.label) + ' ' + a.days + '일</span>';
+      html += ' <span style="font-size:10px;color:var(--text-muted)">[' + esc(a.am) + '/' + esc(a.cc) + ']</span></span>';
+    });
+    if (dangers.length > 15) html += '<span style="font-size:11px;color:var(--text-muted);padding:4px 8px">외 ' + (dangers.length - 15) + '건</span>';
+    html += '</div>';
+  }
+
+  if (warnings.length > 0) {
+    html += '<details style="margin-top:4px"><summary style="font-size:12px;color:var(--text-muted);cursor:pointer">신청 후 미제출 ' + warnings.length + '건</summary>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">';
+    warnings.slice(0, 20).forEach(a => {
+      html += '<span style="display:inline-block;background:rgba(251,191,36,0.15);border-radius:4px;padding:3px 8px;font-size:11px;color:#b45309">';
+      html += esc(a.corp) + ' (' + a.days + '일) [' + esc(a.am) + ']</span>';
+    });
+    if (warnings.length > 20) html += '<span style="font-size:11px;color:var(--text-muted)">외 ' + (warnings.length - 20) + '건</span>';
+    html += '</div></details>';
+  }
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
 function getFilteredData() {
   return aggregateFunnel(getFilteredRecords());
 }
@@ -732,6 +816,7 @@ function getFilteredSLA() {
 }
 
 function applyFilter() {
+  buildAlerts();
   const filtered = getFilteredData();
   const startVal = document.getElementById('filterStart').value;
   const endVal = document.getElementById('filterEnd').value;
@@ -2050,6 +2135,9 @@ if (window.parent !== window && window.location.search.includes('embedded=1')) {
   }
   new ResizeObserver(notifyHeight).observe(document.body);
   window.addEventListener('load', notifyHeight);
+}
+if (window.location.search.includes('embedded=1')) {
+  setInterval(() => { if (typeof applyFilter === 'function') applyFilter(); }, 30 * 60 * 1000);
 }
 </script>
 </body>
