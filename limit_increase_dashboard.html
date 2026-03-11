@@ -487,14 +487,16 @@
     </div>
   </div>
 
-  <!-- ── MONTHLY TREND ── -->
+  <!-- ── MONTHLY TREND (INDEPENDENT) ── -->
   <div class="section">
-    <div class="section-title">월별 추이 <span class="badge">비교 가능</span></div>
+    <div class="section-title">월별 추이 <span class="badge">필터 독립</span></div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--text-muted)">비교할 월 선택:</span>
-      <div id="monthCheckboxes" style="display:flex;gap:4px;flex-wrap:wrap"></div>
-      <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px;margin-left:4px">전체</button>
-      <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근3개월</button>
+      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">비교 월:</span>
+      <select id="monthSelect" multiple onchange="onMonthSelectChange()" style="min-width:200px;max-width:100%;height:32px;font-size:12px;padding:2px 6px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text)"></select>
+      <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px">전체</button>
+      <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근 3개월</button>
+      <button class="tab-btn" onclick="selectRecentMonths(6)" style="font-size:10px;padding:2px 6px">최근 6개월</button>
+      <span id="monthSelectInfo" style="font-size:11px;color:var(--text-muted);margin-left:auto"></span>
     </div>
     <div class="grid-2">
       <div class="card">
@@ -508,16 +510,10 @@
     </div>
   </div>
 
-  <!-- ── DAILY TREND ── -->
+  <!-- ── DAILY TREND (FOLLOWS TOP FILTER) ── -->
   <div class="section">
-    <div class="section-title">일별 전환율 트렌드 <span class="badge" id="dailyPeriodBadge">최근 30일</span></div>
+    <div class="section-title">일별 전환율 트렌드 <span class="badge" id="dailyPeriodBadge">상단 필터 연동</span></div>
     <div class="card">
-      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
-        <button class="tab-btn daily-range-btn" onclick="setDailyRange(7)" style="font-size:11px;padding:2px 8px">7일</button>
-        <button class="tab-btn daily-range-btn active" onclick="setDailyRange(30)" style="font-size:11px;padding:2px 8px">30일</button>
-        <button class="tab-btn daily-range-btn" onclick="setDailyRange(60)" style="font-size:11px;padding:2px 8px">60일</button>
-        <button class="tab-btn daily-range-btn" onclick="setDailyRange(90)" style="font-size:11px;padding:2px 8px">90일</button>
-      </div>
       <div class="chart-wrap" style="height:280px"><canvas id="dailyTrendChart"></canvas></div>
     </div>
   </div>
@@ -1089,49 +1085,30 @@ function getChartColors() {
   };
 }
 
-// ─── DAILY TREND ───
-let dailyRange = 30;
-
-function setDailyRange(days) {
-  dailyRange = days;
-  document.querySelectorAll('.daily-range-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
-  document.getElementById('dailyPeriodBadge').textContent = '최근 ' + days + '일';
-  buildDailyTrendChart();
-}
-
-function movingAverage(arr, window) {
-  return arr.map((_, i) => {
-    const start = Math.max(0, i - window + 1);
-    const slice = arr.slice(start, i + 1).filter(v => v != null && v > 0);
-    if (slice.length === 0) return null;
-    return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length * 10) / 10;
-  });
-}
+// ─── DAILY TREND (follows top filter) ───
 
 function buildDailyTrendChart() {
   destroyChart('dailyTrend');
   const c = getChartColors();
   const recs = getFilteredRecords();
-
-  const today = new Date();
-  const startDate = new Date(today);
-  startDate.setDate(today.getDate() - dailyRange);
-  const startStr = startDate.toISOString().slice(0, 10);
+  const start = document.getElementById('filterStart').value;
+  const end = document.getElementById('filterEnd').value;
+  document.getElementById('dailyPeriodBadge').textContent = start + ' ~ ' + end;
 
   // Group by date
   const dateMap = {};
   recs.forEach(r => {
-    if (!r.d || r.d < startStr) return;
+    if (!r.d) return;
     if (!dateMap[r.d]) dateMap[r.d] = { total: 0, f2: 0, f3: 0, f4: 0, rj: 0 };
     const o = dateMap[r.d];
     o.total++; o.f2 += r.f2; o.f3 += r.f3; o.f4 += r.f4; o.rj += r.rj;
   });
 
-  // Fill missing dates
+  // Fill missing dates in filter range
   const dates = [];
-  const d = new Date(startDate);
-  while (d <= today) {
+  const d = new Date(start);
+  const endDate = new Date(end);
+  while (d <= endDate) {
     dates.push(d.toISOString().slice(0, 10));
     d.setDate(d.getDate() + 1);
   }
@@ -1211,52 +1188,98 @@ function buildDailyTrendChart() {
   });
 }
 
-// ─── MONTHLY COMPARISON ───
-let selectedMonths = new Set();
-
-function buildMonthCheckboxes(data) {
-  const months = data.map(d => d.month);
-  if (selectedMonths.size === 0) months.forEach(m => selectedMonths.add(m));
-
-  const container = document.getElementById('monthCheckboxes');
-  if (!container) return;
-  container.innerHTML = months.map(m => {
-    const checked = selectedMonths.has(m) ? 'checked' : '';
-    const label = m.slice(2).replace('-', '.');
-    return `<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--text);cursor:pointer;background:var(--card);border:1px solid var(--border);border-radius:4px;padding:2px 8px">
-      <input type="checkbox" ${checked} value="${m}" onchange="toggleMonthSelect('${m}', this.checked)" style="width:12px;height:12px;margin:0">
-      ${label}
-    </label>`;
-  }).join('');
+function movingAverage(arr, window) {
+  return arr.map((_, i) => {
+    const start = Math.max(0, i - window + 1);
+    const slice = arr.slice(start, i + 1).filter(v => v != null && v > 0);
+    if (slice.length === 0) return null;
+    return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length * 10) / 10;
+  });
 }
 
-function toggleMonthSelect(month, checked) {
-  if (checked) selectedMonths.add(month);
-  else selectedMonths.delete(month);
-  const data = getFilteredData();
-  buildTrendChart(data.filter(d => selectedMonths.has(d.month)));
-  buildTypeChart(data.filter(d => selectedMonths.has(d.month)));
+// ─── MONTHLY TREND (independent from top filter, uses ALL data) ───
+let selectedMonths = new Set();
+
+function initMonthSelect() {
+  const allMonths = [];
+  const now = new Date();
+  const d = new Date(2025, 5, 1); // June 2025 (limit data starts from 2025-06)
+  while (d <= now) {
+    allMonths.push(d.toISOString().slice(0, 7));
+    d.setMonth(d.getMonth() + 1);
+  }
+  const sel = document.getElementById('monthSelect');
+  sel.innerHTML = '';
+  allMonths.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m.slice(2).replace('-', '년 ') + '월';
+    opt.selected = true;
+    sel.appendChild(opt);
+  });
+  selectedMonths = new Set(allMonths);
+  updateMonthInfo();
+}
+
+function onMonthSelectChange() {
+  const sel = document.getElementById('monthSelect');
+  selectedMonths = new Set([...sel.options].filter(o => o.selected).map(o => o.value));
+  updateMonthInfo();
+  buildMonthlyTrendIndependent();
 }
 
 function selectAllMonths() {
-  const data = getFilteredData();
-  selectedMonths.clear();
-  data.forEach(d => selectedMonths.add(d.month));
-  document.querySelectorAll('#monthCheckboxes input[type="checkbox"]').forEach(cb => cb.checked = true);
-  buildTrendChart(data);
-  buildTypeChart(data);
+  const sel = document.getElementById('monthSelect');
+  [...sel.options].forEach(o => o.selected = true);
+  selectedMonths = new Set([...sel.options].map(o => o.value));
+  updateMonthInfo();
+  buildMonthlyTrendIndependent();
 }
 
 function selectRecentMonths(n) {
-  const data = getFilteredData();
-  selectedMonths.clear();
-  document.querySelectorAll('#monthCheckboxes input[type="checkbox"]').forEach(cb => cb.checked = false);
-  const recent = data.slice(-n);
-  recent.forEach(d => selectedMonths.add(d.month));
-  const checkboxes = [...document.querySelectorAll('#monthCheckboxes input[type="checkbox"]')];
-  checkboxes.slice(-n).forEach(cb => cb.checked = true);
-  buildTrendChart(recent);
-  buildTypeChart(recent);
+  const sel = document.getElementById('monthSelect');
+  const opts = [...sel.options];
+  opts.forEach(o => o.selected = false);
+  opts.slice(-n).forEach(o => o.selected = true);
+  selectedMonths = new Set(opts.filter(o => o.selected).map(o => o.value));
+  updateMonthInfo();
+  buildMonthlyTrendIndependent();
+}
+
+function updateMonthInfo() {
+  const total = document.getElementById('monthSelect').options.length;
+  document.getElementById('monthSelectInfo').textContent = selectedMonths.size + '/' + total + '개월 선택';
+}
+
+function buildMonthlyTrendIndependent() {
+  // Use ALL RECORD_DATA, ignoring the top filter
+  const monthMap = {};
+  RECORD_DATA.forEach(r => {
+    if (!r.d) return;
+    const m = r.d.slice(0, 7);
+    if (!selectedMonths.has(m)) return;
+    if (!monthMap[m]) {
+      const [y, mo] = m.split('-');
+      monthMap[m] = {
+        month: m, label: y.slice(2) + '년' + mo + '월',
+        total: 0, f1: 0, f2: 0, f3: 0, f4: 0,
+        gowid_rejected: 0, card_co_rejected: 0, canceled: 0, in_progress: 0,
+        limit_up_total: 0, limit_up_f4: 0, limit_up_rejected: 0,
+        card_add_total: 0, card_add_f4: 0, card_add_rejected: 0,
+      };
+    }
+    const o = monthMap[m];
+    o.total++; o.f1++;
+    o.f2 += r.f2; o.f3 += r.f3; o.f4 += r.f4;
+    o.gowid_rejected += r.rj; o.card_co_rejected += r.cr;
+    o.canceled += r.cn; o.in_progress += r.ip;
+    if (r.t === '상향') { o.limit_up_total++; o.limit_up_f4 += r.f4; o.limit_up_rejected += r.rj; }
+    else { o.card_add_total++; o.card_add_f4 += r.f4; o.card_add_rejected += r.rj; }
+  });
+
+  const data = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month));
+  buildTrendChart(data);
+  buildTypeChart(data);
 }
 
 function buildTrendChart(data) {
@@ -2179,9 +2202,7 @@ function buildAll(filtered) {
   buildKPI(data, slaData);
   buildAlerts();
   buildFunnel(data);
-  buildMonthCheckboxes(data);
-  buildTrendChart(data);
-  buildTypeChart(data);
+  buildMonthlyTrendIndependent();
   buildDailyTrendChart();
   buildSLAChart(slaData);
   buildSLAOverChart(slaData);
@@ -2195,10 +2216,8 @@ function buildAll(filtered) {
 }
 
 function rebuildCharts() {
-  const data = getFilteredData();
   const slaData = getFilteredSLA();
-  buildTrendChart(data);
-  buildTypeChart(data);
+  buildMonthlyTrendIndependent();
   buildDailyTrendChart();
   buildSLAChart(slaData);
   buildSLAOverChart(slaData);
@@ -2233,6 +2252,7 @@ function updateFreshness() {
 
 document.addEventListener('DOMContentLoaded', () => {
   populateDropdowns();
+  initMonthSelect();
   // V2: Restore filters from URL
   const urlP = new URLSearchParams(window.location.search);
   if (urlP.get('start')) document.getElementById('filterStart').value = urlP.get('start');
