@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>퍼널 대시보드 | GoWid</title>
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-secondary: #e8edf4;
+      --border-strong: rgba(30,41,59,0.18);
+      --text-muted: #6b7280;
+      --text-strong: #0f172a;
+      --primary: #3b82f6;
+      --primary-dim: rgba(59,130,246,0.08);
+    }
+    html.dark-mode {
+      --bg-secondary: #0f172a;
+      --border-strong: rgba(148,163,184,0.22);
+      --text-muted: #7b8ba3;
+      --text-strong: #f1f5f9;
+      --primary: #5b9cf6;
+      --primary-dim: rgba(91,156,246,0.12);
+    }
+    body {
+      margin: 0; padding: 0;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg-secondary);
+    }
+    .nav-tabs {
+      display: flex; gap: 0; background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-strong);
+      padding: 0 32px;
+    }
+    .nav-tabs a {
+      display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 600;
+      color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent;
+      transition: all 0.15s; cursor: pointer;
+    }
+    .nav-tabs a:hover { color: var(--text-strong); background: var(--primary-dim); }
+    .nav-tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
+    iframe {
+      width: 100%; border: none;
+      height: calc(100vh - 42px);
+    }
+    @media (max-width: 600px) {
+      .nav-tabs { padding: 0 12px; }
+      .nav-tabs a { padding: 8px 16px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="nav-tabs" id="navTabs">
+  <a data-tab="card" class="active" onclick="switchTab('card')">신규 입회 퍼널</a>
+  <a data-tab="limit" onclick="switchTab('limit')">한도상향 퍼널</a>
+</div>
+
+<iframe id="dashboardFrame" src="card_funnel_dashboard.html?embedded=1"></iframe>
+
+<script>
+  const PAGES = {
+    card: 'card_funnel_dashboard.html',
+    limit: 'limit_increase_dashboard.html'
+  };
+
+  function switchTab(tab) {
+    const frame = document.getElementById('dashboardFrame');
+    frame.src = PAGES[tab] + '?embedded=1';
+    document.querySelectorAll('#navTabs a').forEach(a => {
+      a.classList.toggle('active', a.dataset.tab === tab);
+    });
+    history.replaceState(null, '', '#' + tab);
+    // Sync dark mode to iframe
+    syncTheme();
+  }
+
+  function syncTheme() {
+    const isDark = document.documentElement.classList.contains('dark-mode');
+    const frame = document.getElementById('dashboardFrame');
+    frame.onload = function() {
+      try {
+        const doc = frame.contentDocument || frame.contentWindow.document;
+        if (isDark) {
+          doc.documentElement.classList.add('dark-mode');
+          doc.body.classList.add('dark-mode');
+        } else {
+          doc.documentElement.classList.remove('dark-mode');
+          doc.body.classList.remove('dark-mode');
+        }
+      } catch(e) {}
+    };
+  }
+
+  // Listen for theme changes from iframe
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'themeChange') {
+      if (e.data.dark) {
+        document.documentElement.classList.add('dark-mode');
+      } else {
+        document.documentElement.classList.remove('dark-mode');
+      }
+    }
+  });
+
+  // Init from hash
+  const hash = location.hash.replace('#', '');
+  if (hash === 'limit') switchTab('limit');
+
+  // Auto-resize iframe height
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'resize') {
+      document.getElementById('dashboardFrame').style.height = e.data.height + 'px';
+    }
+  });
+</script>
+</body>
+</html>

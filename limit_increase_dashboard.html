@@ -402,10 +402,16 @@
 <body>
 
 <!-- ── NAV TABS ── -->
-<div class="nav-tabs">
+<div class="nav-tabs" id="navTabsLocal">
   <a href="card_funnel_dashboard.html">신규 입회 퍼널</a>
   <a href="limit_increase_dashboard.html" class="active">한도상향 퍼널</a>
 </div>
+<script>
+  // 임베디드 모드: 부모 래퍼에서 로드 시 nav-tabs 숨김
+  if (window.location.search.includes('embedded=1')) {
+    document.getElementById('navTabsLocal').style.display = 'none';
+  }
+</script>
 
 <header>
   <div class="header-left">
@@ -586,8 +592,13 @@ const CARD_CO_DATA = [{"name":"롯데카드","type":"한도상향","total":528,"
 function toggleTheme() {
   document.documentElement.classList.toggle('dark-mode');
   document.body.classList.toggle('dark-mode');
-  localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+  const isDark = document.body.classList.contains('dark-mode');
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
   rebuildCharts();
+  // 부모 래퍼에 테마 변경 알림
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'themeChange', dark: isDark }, '*');
+  }
 }
 if (localStorage.getItem('theme') === 'dark') {
   document.documentElement.classList.add('dark-mode');
@@ -2030,5 +2041,16 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUpdateM
     <button class="close-btn" onclick="closeVersionHistory()" style="margin-top:16px">닫기</button>
   </div>
 </div>
+<script>
+// 임베디드 모드: 부모에게 높이 전달
+if (window.parent !== window && window.location.search.includes('embedded=1')) {
+  function notifyHeight() {
+    const h = document.documentElement.scrollHeight;
+    window.parent.postMessage({ type: 'resize', height: h }, '*');
+  }
+  new ResizeObserver(notifyHeight).observe(document.body);
+  window.addEventListener('load', notifyHeight);
+}
+</script>
 </body>
 </html>
