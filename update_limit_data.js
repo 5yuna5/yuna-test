@@ -357,8 +357,12 @@ async function main() {
   console.log(`   파일: ${HTML_FILE}`);
   console.log(`   시간: ${new Date().toLocaleString('ko-KR')}`);
 
-  // gh-pages 배포
-  await deployToGhPages();
+  // gh-pages 배포 (SKIP_DEPLOY=1이면 건너뜀 — GitHub Actions에서 일괄 커밋)
+  if (process.env.SKIP_DEPLOY !== '1') {
+    await deployToGhPages();
+  } else {
+    console.log('\n⏭ SKIP_DEPLOY=1 — 배포 생략 (GitHub Actions에서 일괄 처리)');
+  }
 }
 
 async function deployToGhPages() {
