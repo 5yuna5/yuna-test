@@ -235,6 +235,12 @@ async function deployToGhPages() {
   const run = (cmd, opts) =>
     execSync(cmd, { cwd: projectDir, stdio: 'pipe', timeout: 30000, ...opts });
 
+  // Save backups BEFORE any git operations
+  const htmlPath = path.join(projectDir, 'card_funnel_dashboard.html');
+  const jsPath = path.join(projectDir, 'update_card_funnel_data.js');
+  const htmlBackup = fs.readFileSync(htmlPath);
+  const jsBackup = fs.readFileSync(jsPath);
+
   try {
     console.log('\n🚀 GitHub Pages 배포 중...');
 
@@ -262,9 +268,10 @@ async function deployToGhPages() {
           .map((l) => l.slice(3).trim());
         for (const f of conflicted) {
           if (f === 'card_funnel_dashboard.html' || f === 'update_card_funnel_data.js') {
-            run('git checkout --ours "' + f + '"');
-          } else {
+            // During rebase, --theirs means our local commits (opposite of merge)
             run('git checkout --theirs "' + f + '"');
+          } else {
+            run('git checkout --ours "' + f + '"');
           }
           run('git add "' + f + '"');
         }
@@ -273,17 +280,24 @@ async function deployToGhPages() {
       } catch {
         console.log('   ⚠ 자동 해결 실패 — reset 후 재시도...');
         try { run('git rebase --abort'); } catch {}
-        const htmlPath = path.join(projectDir, 'card_funnel_dashboard.html');
-        const jsPath = path.join(projectDir, 'update_card_funnel_data.js');
-        const htmlBackup = fs.readFileSync(htmlPath);
-        const jsBackup = fs.readFileSync(jsPath);
         run('git reset --hard origin/main');
+        // Use pre-saved backups (not filesystem which may have conflict markers)
         fs.writeFileSync(htmlPath, htmlBackup);
         fs.writeFileSync(jsPath, jsBackup);
         run('git add card_funnel_dashboard.html update_card_funnel_data.js');
         run('git commit -m "auto: update card_funnel_dashboard data"');
         console.log('   ✅ reset 후 재커밋 완료');
       }
+    }
+
+    // Final safety check: verify no conflict markers in HTML before push
+    const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+    if (htmlContent.includes('<<<<<<< ')) {
+      console.log('   ⚠ HTML에 충돌 마커 발견 — 백업으로 복원...');
+      fs.writeFileSync(htmlPath, htmlBackup);
+      fs.writeFileSync(jsPath, jsBackup);
+      run('git add card_funnel_dashboard.html update_card_funnel_data.js');
+      run('git commit -m "auto: update card_funnel_dashboard data"');
     }
 
     run('git push origin main');
