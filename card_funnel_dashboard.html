@@ -896,9 +896,10 @@ function buildAlerts(records) {
   html += '<div id="alertList" style="max-height:200px;overflow-y:auto">';
   html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>';
   alerts.forEach(function(a) {
-    html += '<tr data-alertcat="' + a.cat + '" style="border-bottom:1px solid var(--border)">';
+    var corpEsc = esc(a.corp).replace(/'/g,"\\'");
+    html += '<tr data-alertcat="' + a.cat + '" onclick="scrollToCorpDetail(\'' + corpEsc + '\')" style="border-bottom:1px solid var(--border);cursor:pointer">';
     html += '<td style="padding:3px 6px">' + (a.type==='danger'?'\uD83D\uDD34':'\uD83D\uDFE1') + '</td>';
-    html += '<td style="padding:3px 6px"><span onclick="scrollToCorpDetail(\'' + esc(a.corp).replace(/'/g,"\\'") + '\')" style="cursor:pointer;color:var(--primary);font-weight:600">' + esc(a.corp) + '</span></td>';
+    html += '<td style="padding:3px 6px;color:var(--primary);font-weight:600">' + esc(a.corp) + '</td>';
     html += '<td style="padding:3px 6px;color:var(--text-muted)">' + a.label + '</td>';
     html += '<td style="padding:3px 6px;font-weight:600;color:' + (a.days>=30?'var(--accent)':'var(--text)') + '">D+' + a.days + '</td>';
     html += '<td style="padding:3px 6px;color:var(--text-muted)">' + esc(a.am) + '</td>';
@@ -1543,6 +1544,10 @@ function closeSidePanel() {
 function scrollToCorpDetail(corpName) {
   var detailSection = document.getElementById('detailSection');
   if (!detailSection) return;
+  // HTML entity decode
+  var tmp = document.createElement('textarea');
+  tmp.innerHTML = corpName;
+  var decoded = tmp.value;
   // 기존 하이라이트 제거
   document.querySelectorAll('.row-highlight').forEach(function(el) { el.classList.remove('row-highlight'); });
   // 접혀있으면 펼치기
@@ -1554,9 +1559,9 @@ function scrollToCorpDetail(corpName) {
   // 해당 행 찾아서 바로 스크롤 + 하이라이트
   setTimeout(function() {
     var found = false;
-    var rows = document.querySelectorAll('tr[data-corp]');
+    var rows = document.querySelectorAll('#detailTableWrap tr[data-corp]');
     rows.forEach(function(row) {
-      if (row.dataset.corp === corpName && !found) {
+      if (!found && (row.dataset.corp === decoded || row.dataset.corp === corpName)) {
         found = true;
         row.scrollIntoView({behavior:'smooth', block:'center'});
         row.classList.add('row-highlight');
