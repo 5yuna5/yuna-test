@@ -835,7 +835,7 @@ function buildAlerts(records) {
   function daysDiff(d) { return Math.floor((today - new Date(d)) / 86400000); }
 
   var alerts = [];
-  RECORD_DATA.forEach(function(r) {
+  records.forEach(function(r) {
     if (r.na) return; // CardApplication 없는 법인 제외
     var days = daysDiff(r.d);
     var dSinceApproval = days - (r.d1||0);
@@ -896,8 +896,7 @@ function buildAlerts(records) {
   html += '<div id="alertList" style="max-height:200px;overflow-y:auto">';
   html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>';
   alerts.forEach(function(a) {
-    var corpEsc = esc(a.corp).replace(/'/g,"\\'");
-    html += '<tr data-alertcat="' + a.cat + '" onclick="scrollToCorpDetail(\'' + corpEsc + '\')" style="border-bottom:1px solid var(--border);cursor:pointer">';
+    html += '<tr data-alertcat="' + a.cat + '" onclick="scrollToCorpDetail(' + JSON.stringify(a.corp) + ')" style="border-bottom:1px solid var(--border);cursor:pointer">';
     html += '<td style="padding:3px 6px">' + (a.type==='danger'?'\uD83D\uDD34':'\uD83D\uDFE1') + '</td>';
     html += '<td style="padding:3px 6px;color:var(--primary);font-weight:600">' + esc(a.corp) + '</td>';
     html += '<td style="padding:3px 6px;color:var(--text-muted)">' + a.label + '</td>';
@@ -1544,10 +1543,6 @@ function closeSidePanel() {
 function scrollToCorpDetail(corpName) {
   var detailSection = document.getElementById('detailSection');
   if (!detailSection) return;
-  // HTML entity decode
-  var tmp = document.createElement('textarea');
-  tmp.innerHTML = corpName;
-  var decoded = tmp.value;
   // 기존 하이라이트 제거
   document.querySelectorAll('.row-highlight').forEach(function(el) { el.classList.remove('row-highlight'); });
   // 접혀있으면 펼치기
@@ -1561,7 +1556,7 @@ function scrollToCorpDetail(corpName) {
     var found = false;
     var rows = document.querySelectorAll('#detailTableWrap tr[data-corp]');
     rows.forEach(function(row) {
-      if (!found && (row.dataset.corp === decoded || row.dataset.corp === corpName)) {
+      if (!found && row.dataset.corp === corpName) {
         found = true;
         row.scrollIntoView({behavior:'smooth', block:'center'});
         row.classList.add('row-highlight');
