@@ -2930,10 +2930,8 @@ function updateFreshness() {
 document.addEventListener('DOMContentLoaded', () => {
   populateDropdowns();
   initMonthSelect();
-  // V2: Restore filters from URL
+  // URL 파라미터 복원 (AM, 카드사만 — 날짜는 항상 당월 기본값)
   const urlP = new URLSearchParams(window.location.search);
-  if (urlP.get('start')) document.getElementById('filterStart').value = urlP.get('start');
-  if (urlP.get('end')) document.getElementById('filterEnd').value = urlP.get('end');
   if (urlP.get('am')) document.getElementById('filterAM').value = urlP.get('am');
   if (urlP.get('cc') && document.getElementById('filterCardCo')) document.getElementById('filterCardCo').value = urlP.get('cc');
   applyFilter();
