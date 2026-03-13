@@ -115,11 +115,20 @@ async function fetchRecordData() {
       WHERE c.resCompanyIdentityNo IS NOT NULL
       GROUP BY 1
     ),
+    -- 법인명 매핑: CardApplication에서 가져오기 (Corp에 없는 경우 폴백)
+    app_name_map AS (
+      SELECT REPLACE(ca.businessRegistrationNumber, '-', '') AS brn_key,
+        ARRAY_AGG(ca.corporationName ORDER BY ca.createdAt DESC LIMIT 1)[OFFSET(0)] AS app_corp_name
+      FROM \`gowid-prd.ods_stream_gowid.CardApplication\` ca
+      WHERE ca.businessRegistrationNumber IS NOT NULL
+        AND ca.corporationName IS NOT NULL AND ca.corporationName != ''
+      GROUP BY 1
+    ),
     base AS (
       SELECT
         FORMAT_DATE('%Y-%m-%d', c.cohort_date) AS submit_date,
         c.brn_key,
-        IFNULL(cn.corp_name, c.brn_key) AS corp_name,
+        COALESCE(cn.corp_name, acn.app_corp_name, c.brn_key) AS corp_name,
         IFNULL(am.assigned_am, '') AS am,
         -- 퍼널 플래그
         1 AS sub,
@@ -157,6 +166,7 @@ async function fetchRecordData() {
       LEFT JOIN corp_dim_after_app cd USING (brn_key)
       LEFT JOIN am_map am USING (brn_key)
       LEFT JOIN corp_name_map cn USING (brn_key)
+      LEFT JOIN app_name_map acn USING (brn_key)
     )
     SELECT * FROM base ORDER BY submit_date DESC
   `);
