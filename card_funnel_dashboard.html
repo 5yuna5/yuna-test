@@ -896,7 +896,8 @@ function buildAlerts(records) {
   html += '<div id="alertList" style="max-height:200px;overflow-y:auto">';
   html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>';
   alerts.forEach(function(a) {
-    html += '<tr data-alertcat="' + a.cat + '" onclick="scrollToCorpDetail(' + JSON.stringify(a.corp) + ')" style="border-bottom:1px solid var(--border);cursor:pointer">';
+    var corpEsc = esc(a.corp).replace(/'/g,"\\'");
+    html += '<tr data-alertcat="' + a.cat + '" onclick="scrollToCorpDetail(\'' + corpEsc + '\')" style="border-bottom:1px solid var(--border);cursor:pointer">';
     html += '<td style="padding:3px 6px">' + (a.type==='danger'?'\uD83D\uDD34':'\uD83D\uDFE1') + '</td>';
     html += '<td style="padding:3px 6px;color:var(--primary);font-weight:600">' + esc(a.corp) + '</td>';
     html += '<td style="padding:3px 6px;color:var(--text-muted)">' + a.label + '</td>';
