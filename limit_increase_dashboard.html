@@ -710,8 +710,10 @@ function populateDropdowns() {
   const maxDate = dates[dates.length - 1] || new Date().toISOString().slice(0, 10);
   s.min = minDate; s.max = maxDate;
   e.min = minDate; e.max = maxDate;
-  s.value = minDate;
-  e.value = maxDate;
+  // 기본값: 당월 1일 ~ 오늘
+  var now = new Date();
+  s.value = now.toISOString().slice(0, 8) + '01';
+  e.value = now.toISOString().slice(0, 10);
   // AM dropdown
   const amSel = document.getElementById('filterAM');
   const AM_EXCLUDE = ['옥래협'];
