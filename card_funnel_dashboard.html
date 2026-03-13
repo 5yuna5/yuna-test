@@ -481,6 +481,7 @@
     <div class="section-title collapse-toggle" onclick="toggleCollapse(this)" style="display:flex;align-items:center;gap:8px">
       <span><span class="arrow">▶</span> 건별 상세 테이블</span>
       <button id="toggleCompletedBtn" onclick="event.stopPropagation();toggleHideCompleted()" class="tab-btn active" style="font-size:11px;padding:4px 12px;margin-left:auto">완료 숨김</button>
+      <button id="toggleUnusedBtn" onclick="event.stopPropagation();toggleHideUnused()" class="tab-btn active" style="font-size:11px;padding:4px 12px">미사용 숨김</button>
       <button onclick="event.stopPropagation();exportDetailCSV()" class="update-btn" style="font-size:11px;padding:4px 12px">CSV 내보내기</button>
     </div>
     <div class="collapse-body" id="detailTableWrap">
@@ -1799,6 +1800,7 @@ function buildTodoPanel(records) {
 var detailSortKey = null;
 var detailSortAsc = true;
 var hideCompleted = true; // 기본: 완료 건 숨김
+var hideUnused = true; // 기본: 발급완료·미사용 숨김
 
 function toggleDetailSort(key) {
   if (detailSortKey === key) detailSortAsc = !detailSortAsc;
@@ -1812,6 +1814,16 @@ function toggleHideCompleted() {
   if (btn) {
     btn.textContent = hideCompleted ? '완료 숨김' : '완료 포함';
     btn.classList.toggle('active', hideCompleted);
+  }
+  applyFilter();
+}
+
+function toggleHideUnused() {
+  hideUnused = !hideUnused;
+  var btn = document.getElementById('toggleUnusedBtn');
+  if (btn) {
+    btn.textContent = hideUnused ? '미사용 숨김' : '미사용 포함';
+    btn.classList.toggle('active', hideUnused);
   }
   applyFilter();
 }
@@ -1863,6 +1875,10 @@ function buildDetailTable(records) {
   // 완료 건 숨기기
   if (hideCompleted) {
     records = records.filter(function(r) { return !r.fs; });
+  }
+  // 발급완료·미사용 숨기기
+  if (hideUnused) {
+    records = records.filter(function(r) { return !(r.cd && !r.fs); });
   }
 
   // Sort records
