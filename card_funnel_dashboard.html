@@ -409,7 +409,7 @@
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">비교 월:</span>
-        <select id="monthSelect" multiple onchange="onMonthSelectChange()" style="min-width:200px;max-width:100%;height:32px;font-size:12px;padding:2px 6px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text)"></select>
+        <div id="monthButtons" style="display:flex;gap:4px;flex-wrap:wrap"></div>
         <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px">전체</button>
         <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근 3개월</button>
         <button class="tab-btn" onclick="selectRecentMonths(6)" style="font-size:10px;padding:2px 6px">최근 6개월</button>
@@ -459,8 +459,9 @@
 
   <!-- ── CORP DETAIL TABLE ── -->
   <div class="section" id="detailSection">
-    <div class="section-title collapse-toggle" onclick="toggleCollapse(this)">
-      <span class="arrow">▶</span> 건별 상세 테이블
+    <div class="section-title collapse-toggle" onclick="toggleCollapse(this)" style="display:flex;align-items:center;gap:8px">
+      <span><span class="arrow">▶</span> 건별 상세 테이블</span>
+      <button onclick="event.stopPropagation();exportDetailCSV()" class="update-btn" style="font-size:11px;padding:4px 12px;margin-left:auto">CSV 내보내기</button>
     </div>
     <div class="collapse-body" id="detailTableWrap">
       <div class="card" style="overflow-x:auto">
@@ -926,66 +927,65 @@ let trendChartInstance = null;
 let selectedMonths = new Set();
 
 function initMonthSelect() {
-  // Generate all months from 2025-01 to current month
-  const allMonths = [];
-  const now = new Date();
-  const d = new Date(2025, 0, 1);
-  while (d <= now) {
-    allMonths.push(d.toISOString().slice(0, 7));
-    d.setMonth(d.getMonth() + 1);
-  }
-
-  const sel = document.getElementById('monthSelect');
-  sel.innerHTML = '';
-  allMonths.forEach(m => {
-    const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m.slice(2).replace('-', '년 ') + '월';
-    opt.selected = true;
-    sel.appendChild(opt);
+  var monthSet = new Set();
+  RECORD_DATA.forEach(function(r) {
+    monthSet.add(r.d.slice(0, 7));
   });
-  selectedMonths = new Set(allMonths);
-  updateMonthInfo();
+  var months = Array.from(monthSet).sort();
+  var container = document.getElementById('monthButtons');
+  if (!container) return;
+  container.innerHTML = '';
+  months.forEach(function(m, idx) {
+    var label = m.slice(2,4) + '년' + m.slice(5) + '월';
+    var btn = document.createElement('button');
+    btn.className = 'tab-btn' + (idx >= months.length - 3 ? ' active' : '');
+    btn.textContent = label;
+    btn.dataset.month = m;
+    btn.style.fontSize = '11px';
+    btn.style.padding = '3px 8px';
+    btn.onclick = function() {
+      this.classList.toggle('active');
+      buildMonthlyTrend();
+    };
+    container.appendChild(btn);
+  });
+  selectedMonths = new Set(months.slice(-3));
+  document.getElementById('monthSelectInfo').textContent = months.length + '개월';
 }
 
 function onMonthSelectChange() {
-  const sel = document.getElementById('monthSelect');
-  selectedMonths = new Set([...sel.options].filter(o => o.selected).map(o => o.value));
-  updateMonthInfo();
+  // no longer used — buttons handle toggle directly
   buildMonthlyTrend();
 }
 
 function selectAllMonths() {
-  const sel = document.getElementById('monthSelect');
-  [...sel.options].forEach(o => o.selected = true);
-  selectedMonths = new Set([...sel.options].map(o => o.value));
-  updateMonthInfo();
+  document.querySelectorAll('#monthButtons .tab-btn').forEach(function(b){ b.classList.add('active'); });
   buildMonthlyTrend();
 }
 
 function selectRecentMonths(n) {
-  const sel = document.getElementById('monthSelect');
-  const opts = [...sel.options];
-  opts.forEach(o => o.selected = false);
-  opts.slice(-n).forEach(o => o.selected = true);
-  selectedMonths = new Set(opts.filter(o => o.selected).map(o => o.value));
-  updateMonthInfo();
+  var btns = Array.from(document.querySelectorAll('#monthButtons .tab-btn'));
+  btns.forEach(function(b, i){
+    if (i >= btns.length - n) b.classList.add('active');
+    else b.classList.remove('active');
+  });
   buildMonthlyTrend();
 }
 
 function updateMonthInfo() {
-  const total = document.getElementById('monthSelect').options.length;
-  document.getElementById('monthSelectInfo').textContent = selectedMonths.size + '/' + total + '개월 선택';
+  // no-op — info is set in initMonthSelect
 }
 
 function buildMonthlyTrend() {
   // Use ALL RECORD_DATA, not filtered records
+  var selMonths = new Set(Array.from(document.querySelectorAll('#monthButtons .tab-btn.active')).map(function(b){ return b.dataset.month; }));
+  selectedMonths = selMonths;
   const monthMap = {};
   RECORD_DATA.forEach(r => {
     const dt = getRecordDate(r);
     if (!dt) return;
     const m = dt.slice(0, 7);
-    if (!selectedMonths.has(m)) return;
+    if (!selMonths.has(m)) return;
     if (!monthMap[m]) monthMap[m] = [];
     monthMap[m].push(r);
   });
@@ -1185,17 +1185,18 @@ function openCorpDetail(corpName) {
   let nextAction = '';
   let statusColor = 'var(--warning)';
 
+  var templateInfo = '';
   if (record.fs) { currentStep = '첫사용 완료'; nextAction = '완료 — 추가 조치 불필요'; statusColor = 'var(--success)'; }
-  else if (record.cd) { currentStep = '카드발급 완료'; nextAction = '첫사용 독려 안내 메일/전화'; statusColor = 'var(--info)'; }
+  else if (record.cd) { currentStep = '카드발급 완료'; nextAction = '첫사용 독려 안내 메일/전화'; statusColor = 'var(--info)'; templateInfo = '템플릿#4 첫사용 독려 (\uD83D\uDFE2자동발송)'; }
   else if (record.ca) { currentStep = '카드신청 완료'; nextAction = '카드사 발급 진행 확인'; statusColor = 'var(--info)'; }
   else if (record.ci) { currentStep = '카드정보 입력 완료'; nextAction = '카드 발급 신청 안내'; statusColor = 'var(--warning)'; }
-  else if (record.lz) { currentStep = '한도 0원 산출'; nextAction = '보증금 안내 또는 특별심사 요청 (Risk팀)'; statusColor = 'var(--accent)'; }
-  else if (record.lnz) { currentStep = '유효한도 산출 완료'; nextAction = '카드 정보 입력 안내 (카드 생성 유도)'; statusColor = 'var(--warning)'; }
+  else if (record.lz) { currentStep = '한도 0원 산출'; nextAction = '보증금 안내 또는 특별심사 요청 (Risk팀)'; statusColor = 'var(--accent)'; templateInfo = '보증금/특별심사 안내 (\uD83D\uDD34필수승인)'; }
+  else if (record.lnz) { currentStep = '유효한도 산출 완료'; nextAction = '카드 정보 입력 안내 (카드 생성 유도)'; statusColor = 'var(--warning)'; templateInfo = '카드 발급 안내 메일'; }
   else if (record.lr) { currentStep = '한도결과 도출'; nextAction = record.lnz ? '카드 발급 진행 안내' : '한도=0 조치 안내'; statusColor = 'var(--warning)'; }
   else if (record.lp) { currentStep = '한도심사 진행중'; nextAction = '한도 결과 대기 — 지연 시 내부 확인'; statusColor = 'var(--info)'; }
   else if (record.ls) { currentStep = '한도심사 시작'; nextAction = '한도 심사 진행 모니터링'; statusColor = 'var(--info)'; }
-  else if (record.sig) { currentStep = '회원가입 완료'; nextAction = '한도 조회 안내 (한도심사 시작 유도)'; statusColor = 'var(--warning)'; }
-  else if (record.apr) { currentStep = '심사통과'; nextAction = '회원가입 안내 메일/전화'; statusColor = 'var(--warning)'; }
+  else if (record.sig) { currentStep = '회원가입 완료'; nextAction = '한도 조회 안내 (한도심사 시작 유도)'; statusColor = 'var(--warning)'; templateInfo = '한도 조회 안내'; }
+  else if (record.apr) { currentStep = '심사통과'; nextAction = '회원가입 안내 메일/전화'; statusColor = 'var(--warning)'; templateInfo = '회원가입 안내 메일'; }
   else { currentStep = '입회신청'; nextAction = '심사 진행 확인'; statusColor = 'var(--info)'; }
 
   const slaItems = [
@@ -1218,6 +1219,7 @@ function openCorpDetail(corpName) {
   html += '<div style="font-size:14px;font-weight:700;color:var(--text-strong);margin-bottom:8px">' + currentStep + '</div>';
   html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">다음 액션</div>';
   html += '<div style="font-size:13px;color:var(--text);font-weight:600">' + nextAction + '</div>';
+  if (templateInfo) html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">\uD83D\uDCE7 ' + templateInfo + '</div>';
   html += '</div>';
 
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
@@ -1311,27 +1313,30 @@ function buildTodoPanel(records) {
   // Determine mail type based on category + elapsed days
   function getMailType(category, elapsed) {
     if (category === '\uBBF8\uAC00\uC785 \uB3C5\uCD09') {
-      if (elapsed >= 14) return '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C';
-      if (elapsed >= 7) return '\uAC00\uC785 \uB9AC\uB9C8\uC778\uB4DC \uBA54\uC77C';
-      return '\uAC00\uC785 \uC548\uB0B4 \uBA54\uC77C';
+      if (elapsed >= 14) return '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C [D+14]';
+      if (elapsed >= 7) return '\uAC00\uC785 \uB9AC\uB9C8\uC778\uB4DC [D+7]';
+      return '\uAC00\uC785 \uC548\uB0B4 \uBA54\uC77C [D+3]';
     }
     if (category === '\uCE74\uB4DC \uBBF8\uBC1C\uAE09') {
-      if (elapsed >= 30) return '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C';
-      if (elapsed >= 14) return '\uBC1C\uAE09 \uB9AC\uB9C8\uC778\uB4DC \uBA54\uC77C';
-      return '\uCE74\uB4DC \uBC1C\uAE09 \uC548\uB0B4 \uBA54\uC77C';
+      if (elapsed >= 30) return '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C [D+30]';
+      if (elapsed >= 14) return '\uBC1C\uAE09 \uB9AC\uB9C8\uC778\uB4DC [D+14]';
+      return '\uCE74\uB4DC \uBC1C\uAE09 \uC548\uB0B4 [D+7]';
     }
     if (category === '\uD55C\uB3C4\uC2EC\uC0AC \uBBF8\uC2DC\uC791') {
-      if (elapsed >= 30) return '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C';
-      if (elapsed >= 14) return '\uD55C\uB3C4\uC870\uD68C \uB9AC\uB9C8\uC778\uB4DC';
-      return '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4 \uBA54\uC77C';
+      if (elapsed >= 30) return '\uCD5C\uC885 \uB3C5\uCD09 [D+30]';
+      if (elapsed >= 14) return '\uD55C\uB3C4\uC870\uD68C \uB9AC\uB9C8\uC778\uB4DC [D+14]';
+      return '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4 [D+5]';
     }
     if (category === '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824') {
-      if (elapsed >= 90) return '\uC774\uD0C8 \uC704\uD5D8 \uC54C\uB9BC';
-      if (elapsed >= 30) return '\uCCAB\uC0AC\uC6A9 \uC7AC\uB3C5\uB824 \uBA54\uC77C';
-      return '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824 \uBA54\uC77C';
+      if (elapsed >= 90) return '\uC774\uD0C8 \uC704\uD5D8 \uC54C\uB9BC [D+90]';
+      if (elapsed >= 30) return '\uC7AC\uB3C5\uB824 \uBA54\uC77C [D+30]';
+      return '\uD15C\uD50C\uB9BF#4 \uCCAB\uC0AC\uC6A9 \uB3C5\uB824 [D+7]';
     }
     if (category === '\uD55C\uB3C4 0\uC6D0 \uC870\uCE58') {
-      return '\uBCF4\uC99D\uAE08/\uD2B9\uBCC4\uC2EC\uC0AC \uC548\uB0B4 \uBA54\uC77C';
+      return '\uBCF4\uC99D\uAE08/\uD2B9\uBCC4\uC2EC\uC0AC \uC548\uB0B4';
+    }
+    if (category === '\uC785\uD68C\uC11C\uB958 \uBCF4\uC644') {
+      return '\uD15C\uD50C\uB9BF#2 \uC11C\uB958\uBCF4\uC644 \uC548\uB0B4';
     }
     return '-';
   }
@@ -1537,9 +1542,9 @@ function buildDetailTable(records) {
     } else if (r.cd) {
       status = '\uBC1C\uAE09\uC644\uB8CC\xB7\uBBF8\uC0AC\uC6A9'; statusColor = 'var(--info)';
       elapsed = r.id ? daysSince(r.id) : 0;
-      if (elapsed >= 90) { mailType = '\uC774\uD0C8 \uC704\uD5D8 \uC54C\uB9BC'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 30) { mailType = '\uCCAB\uC0AC\uC6A9 \uC7AC\uB3C5\uB824 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 7) { mailType = '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
+      if (elapsed >= 90) { mailType = '\uC774\uD0C8 \uC704\uD5D8 \uC54C\uB9BC [D+90]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
+      else if (elapsed >= 30) { mailType = '\uC7AC\uB3C5\uB824 \uBA54\uC77C [D+30]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
+      else if (elapsed >= 7) { mailType = '\uD15C\uD50C\uB9BF#4 \uCCAB\uC0AC\uC6A9 \uB3C5\uB824 [D+7]'; urgIcon = '\uD83D\uDFE2'; }
       nextAction = '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824 \uC5F0\uB77D';
     } else if (r.lz) {
       status = '\uD55C\uB3C40\uC6D0'; statusColor = 'var(--accent)';
@@ -1552,9 +1557,9 @@ function buildDetailTable(records) {
       status = '\uC720\uD6A8\uD55C\uB3C4\xB7\uBBF8\uBC1C\uAE09'; statusColor = 'var(--warning)';
       var lrd = limitResultDate(r);
       elapsed = lrd ? daysSinceDate(lrd) : daysSince(r.d);
-      if (elapsed >= 30) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 14) { mailType = '\uBC1C\uAE09 \uB9AC\uB9C8\uC778\uB4DC'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 7) { mailType = '\uCE74\uB4DC \uBC1C\uAE09 \uC548\uB0B4 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
+      if (elapsed >= 30) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C [D+30]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
+      else if (elapsed >= 14) { mailType = '\uBC1C\uAE09 \uB9AC\uB9C8\uC778\uB4DC [D+14]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
+      else if (elapsed >= 7) { mailType = '\uCE74\uB4DC \uBC1C\uAE09 \uC548\uB0B4 [D+7]'; urgIcon = '\uD83D\uDFE2'; }
       nextAction = '\uCE74\uB4DC \uC815\uBCF4 \uC785\uB825 \u2192 \uBC1C\uAE09 \uC548\uB0B4';
     } else if (r.lr) {
       status = '\uD55C\uB3C4\uC0B0\uCD9C'; statusColor = 'var(--warning)'; nextAction = '\uD55C\uB3C4 \uACB0\uACFC \uD655\uC778 \uC548\uB0B4';
@@ -1563,17 +1568,17 @@ function buildDetailTable(records) {
       status = '\uAC00\uC785\uC644\uB8CC\xB7\uD55C\uB3C4\uBBF8\uC2DC\uC791'; statusColor = 'var(--info)';
       var sd = signupDate(r);
       elapsed = sd ? daysSinceDate(sd) : daysSince(r.d);
-      if (elapsed >= 30) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 14) { mailType = '\uD55C\uB3C4\uC870\uD68C \uB9AC\uB9C8\uC778\uB4DC'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 5) { mailType = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
+      if (elapsed >= 30) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 [D+30]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
+      else if (elapsed >= 14) { mailType = '\uD55C\uB3C4\uC870\uD68C \uB9AC\uB9C8\uC778\uB4DC [D+14]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
+      else if (elapsed >= 5) { mailType = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4 [D+5]'; urgIcon = '\uD83D\uDFE2'; }
       nextAction = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4';
     } else if (r.apr) {
       status = '\uC2B9\uC778\xB7\uBBF8\uAC00\uC785'; statusColor = 'var(--warning)';
       var ad = approvalDate(r);
       elapsed = ad ? daysSinceDate(ad) : daysSince(r.d);
-      if (elapsed >= 14) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 7) { mailType = '\uAC00\uC785 \uB9AC\uB9C8\uC778\uB4DC \uBA54\uC77C'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 3) { mailType = '\uAC00\uC785 \uC548\uB0B4 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
+      if (elapsed >= 14) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C [D+14]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
+      else if (elapsed >= 7) { mailType = '\uAC00\uC785 \uB9AC\uB9C8\uC778\uB4DC [D+7]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
+      else if (elapsed >= 3) { mailType = '\uAC00\uC785 \uC548\uB0B4 \uBA54\uC77C [D+3]'; urgIcon = '\uD83D\uDFE2'; }
       nextAction = '\uD68C\uC6D0\uAC00\uC785 \uC548\uB0B4';
     } else {
       status = '\uC811\uC218'; statusColor = 'var(--text-muted)'; nextAction = '\uC2EC\uC0AC \uC9C4\uD589 \uD655\uC778';
@@ -1594,6 +1599,23 @@ function buildDetailTable(records) {
 
   html += '</tbody></table></div>';
   document.getElementById('detailTableWrap').innerHTML = '<div class="card">' + html + '</div>';
+}
+
+// CSV export
+function exportDetailCSV() {
+  var rows = document.querySelectorAll('#detailTableInner tr');
+  if (!rows.length) return;
+  var csv = [];
+  rows.forEach(function(row) {
+    var cols = row.querySelectorAll('th, td');
+    var rowData = Array.from(cols).map(function(col) { return '"' + col.textContent.trim().replace(/"/g, '""') + '"'; });
+    csv.push(rowData.join(','));
+  });
+  var blob = new Blob(['\uFEFF' + csv.join('\n')], {type: 'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'card_funnel_detail_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
 }
 
 // Detail table filter

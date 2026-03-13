@@ -473,6 +473,17 @@
     <span class="filter-info" id="filterInfo"></span>
   </div>
 
+  <!-- ── KPI SUMMARY ── -->
+  <div class="section">
+    <div class="section-title">핵심 지표 <span class="badge">전체 기간</span></div>
+    <div id="maturityWarning"><!-- maturityWarning__DIV__PATCHED --></div>
+    <div class="kpi-grid" id="kpiGrid"></div>
+    <div id="riskSummary" style="margin-top:12px"><!-- riskSummary__PATCHED --></div>
+  </div>
+
+  <!-- ── RISK ALERTS ── -->
+  <div id="alertPanel" style="margin-bottom:16px"></div>
+
   <!-- ── TODO PANEL ── -->
   <section style="margin-bottom:var(--section-gap)">
     <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border)">
@@ -483,17 +494,6 @@
       <div id="todoPanel"></div>
     </div>
   </section>
-
-  <!-- ── RISK ALERTS ── -->
-  <div id="alertPanel" style="margin-bottom:16px"></div>
-
-  <!-- ── KPI SUMMARY ── -->
-  <div class="section">
-    <div class="section-title">핵심 지표 <span class="badge">전체 기간</span></div>
-    <div id="maturityWarning"><!-- maturityWarning__DIV__PATCHED --></div>
-    <div class="kpi-grid" id="kpiGrid"></div>
-    <div id="riskSummary" style="margin-top:12px"><!-- riskSummary__PATCHED --></div>
-  </div>
 
   <!-- ── FUNNEL VISUAL ── -->
   <div class="section">
@@ -508,7 +508,7 @@
     <div class="section-title">월별 추이 <span class="badge">필터 독립</span></div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">비교 월:</span>
-      <select id="monthSelect" multiple onchange="onMonthSelectChange()" style="min-width:200px;max-width:100%;height:32px;font-size:12px;padding:2px 6px;border:1px solid var(--border-strong);border-radius:4px;background:var(--card);color:var(--text)"></select>
+      <div id="monthButtons" style="display:flex;gap:4px;flex-wrap:wrap"></div>
       <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px">전체</button>
       <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근 3개월</button>
       <button class="tab-btn" onclick="selectRecentMonths(6)" style="font-size:10px;padding:2px 6px">최근 6개월</button>
@@ -603,10 +603,13 @@
       <button class="tab-btn detail-type" onclick="filterDetailType('카드사 추가', this)">카드사추가</button>
       <span style="font-size:11px;color:var(--text-muted);margin-left:12px;margin-right:4px">상태</span>
       <button class="tab-btn detail-status active" onclick="filterDetailStatus('all', this)">전체</button>
+      <button class="tab-btn detail-status" onclick="filterDetailStatus('action_needed', this)">조치 필요</button>
+      <button class="tab-btn detail-status" onclick="filterDetailStatus('urgent', this)">🔴긴급</button>
+      <button class="tab-btn detail-status" onclick="filterDetailStatus('warning', this)">🟡주의</button>
       <button class="tab-btn detail-status" onclick="filterDetailStatus('in_progress', this)">진행중</button>
       <button class="tab-btn detail-status" onclick="filterDetailStatus('rejected', this)">부결</button>
-      <button class="tab-btn detail-status" onclick="filterDetailStatus('approved', this)">승인</button>
-      <button class="tab-btn detail-status" onclick="filterDetailStatus('not_submitted', this)">승인미제출<!-- not_submitted__BTN__PATCHED --></button>
+      <button class="tab-btn detail-status" onclick="filterDetailStatus('approved', this)">완료</button>
+      <button class="tab-btn detail-status" onclick="filterDetailStatus('not_submitted', this)">승인미제출</button>
     </div>
     <div class="card">
       <div class="table-scroll">
@@ -782,58 +785,78 @@ function aggregateSLA(recs) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+var currentAlertTab = '승인미제출';
 function buildAlerts() {
   const today = new Date();
   const daysDiff = (d) => Math.floor((today - new Date(d)) / 86400000);
 
-  const alerts = [];
+  const categories = { '승인미제출': [], '카드사미승인': [], '장기정체': [], 'SLA초과': [] };
   RECORD_DATA.forEach(r => {
     const days = daysDiff(r.d);
-    if (r.f2 && !r.f3 && !r.rj && days > 5) {
-      alerts.push({ type: 'danger', label: '제출 후 미접수', corp: r.n || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
+    if (r.ga && !r.f2 && !r.rj && !r.done) {
+      categories['승인미제출'].push({ corp: r.c || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
     }
-    if (r.f3 && !r.f4 && !r.rj && !r.cr && days > 15) {
-      alerts.push({ type: 'danger', label: '카드사 장기 미승인', corp: r.n || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
+    if (r.f3 && !r.f4 && !r.cr && !r.done && days > 5) {
+      categories['카드사미승인'].push({ corp: r.c || '(미상)', am: r.am || '-', days: r.cd || days, cc: r.cc || '-', date: r.d });
     }
-    if (r.f1 && !r.f2 && !r.rj && days > 3) {
-      alerts.push({ type: 'warning', label: '신청 후 미제출', corp: r.n || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d });
+    if (r.ip && !r.done && r.td !== null && r.td >= 14) {
+      categories['장기정체'].push({ corp: r.c || '(미상)', am: r.am || '-', days: r.td, cc: r.cc || '-', date: r.d });
+    }
+    if (!r.done && (r.lo || r.go || r.so || r.co)) {
+      var ot = [];
+      if (r.lo) ot.push('한도조회');
+      if (r.go) ot.push('고위드심사');
+      if (r.so) ot.push('신청서제출');
+      if (r.co) ot.push('카드사심사');
+      categories['SLA초과'].push({ corp: r.c || '(미상)', am: r.am || '-', days, cc: r.cc || '-', date: r.d, slaTypes: ot.join(', ') });
     }
   });
+  Object.keys(categories).forEach(k => categories[k].sort((a, b) => b.days - a.days));
 
-  alerts.sort((a, b) => b.days - a.days);
-
+  const totalAll = Object.values(categories).reduce((s, a) => s + a.length, 0);
   const panel = document.getElementById('alertPanel');
-  if (alerts.length === 0) {
+  if (totalAll === 0) {
     panel.innerHTML = '<div style="background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:8px;padding:12px 16px;font-size:13px;color:var(--success);font-weight:600">모든 건이 정상 진행 중입니다</div>';
     return;
   }
 
-  const dangers = alerts.filter(a => a.type === 'danger');
-  const warnings = alerts.filter(a => a.type === 'warning');
+  const tabCounts = {};
+  Object.keys(categories).forEach(k => { tabCounts[k] = categories[k].length; });
 
-  let html = '<div style="background:rgba(240,96,96,0.08);border:1px solid rgba(240,96,96,0.25);border-radius:8px;padding:16px;margin-bottom:8px">';
-  html += '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:10px">⚠ 주의 필요 — 위험 ' + dangers.length + '건, 주의 ' + warnings.length + '건</div>';
+  let html = '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px">';
+  html += '<div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:12px">⚠ 주의 필요 — 총 ' + totalAll + '건</div>';
+  // Tabs
+  html += '<div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap">';
+  ['승인미제출','카드사미승인','장기정체','SLA초과'].forEach(tab => {
+    var isActive = currentAlertTab === tab;
+    var cnt = tabCounts[tab] || 0;
+    html += '<button class="tab-btn' + (isActive ? ' active' : '') + '" onclick="currentAlertTab=\'' + tab + '\';buildAlerts()" style="font-size:11px;padding:4px 10px">';
+    html += tab + ' <span style="font-size:10px;opacity:0.7">(' + cnt + ')</span></button>';
+  });
+  html += '</div>';
 
-  if (dangers.length > 0) {
-    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
-    dangers.slice(0, 15).forEach(a => {
-      html += '<span onclick="scrollToCorpDetail(\'' + esc(a.corp).replace(/'/g,"\\'") + '\')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:rgba(240,96,96,0.15);border-radius:4px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--accent)">';
-      html += esc(a.corp) + ' <span style="font-weight:400;color:var(--text-muted)">' + esc(a.label) + ' ' + a.days + '일</span>';
-      html += ' <span style="font-size:10px;color:var(--text-muted)">[' + esc(a.am) + '/' + esc(a.cc) + ']</span></span>';
+  // Table for current tab
+  var items = categories[currentAlertTab] || [];
+  if (items.length === 0) {
+    html += '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px">해당 항목이 없습니다</div>';
+  } else {
+    html += '<div style="max-height:200px;overflow-y:auto">';
+    html += '<table class="data-table" style="font-size:11px;width:100%"><thead><tr><th>법인명</th><th>경과일</th><th>카드사</th><th>담당 AM</th>';
+    if (currentAlertTab === 'SLA초과') html += '<th>초과 구간</th>';
+    html += '<th>신청일</th></tr></thead><tbody>';
+    items.forEach(a => {
+      var urgency = a.days >= 14 ? '🔴' : (a.days >= 7 ? '🟡' : '🟢');
+      var corpEsc = esc(a.corp);
+      html += '<tr onclick="scrollToCorpDetail(\'' + corpEsc.replace(/'/g,"\\'") + '\')" style="cursor:pointer">';
+      html += '<td style="color:var(--primary);font-weight:600">' + urgency + ' ' + corpEsc + '</td>';
+      html += '<td class="num" style="color:' + (a.days >= 14 ? 'var(--accent)' : a.days >= 7 ? 'var(--warning)' : 'var(--text)') + ';font-weight:600">D+' + a.days + '</td>';
+      html += '<td>' + esc(a.cc) + '</td>';
+      html += '<td>' + esc(a.am) + '</td>';
+      if (currentAlertTab === 'SLA초과') html += '<td style="font-size:10px">' + esc(a.slaTypes || '') + '</td>';
+      html += '<td style="color:var(--text-muted)">' + (a.date || '-') + '</td>';
+      html += '</tr>';
     });
-    if (dangers.length > 15) html += '<span style="font-size:11px;color:var(--text-muted);padding:4px 8px">외 ' + (dangers.length - 15) + '건</span>';
-    html += '</div>';
-  }
-
-  if (warnings.length > 0) {
-    html += '<details style="margin-top:4px"><summary style="font-size:12px;color:var(--text-muted);cursor:pointer">신청 후 미제출 ' + warnings.length + '건</summary>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">';
-    warnings.slice(0, 20).forEach(a => {
-      html += '<span onclick="scrollToCorpDetail(\'' + esc(a.corp).replace(/'/g,"\\'") + '\')" style="cursor:pointer;display:inline-block;background:rgba(251,191,36,0.15);border-radius:4px;padding:3px 8px;font-size:11px;color:#b45309">';
-      html += esc(a.corp) + ' (' + a.days + '일) [' + esc(a.am) + ']</span>';
-    });
-    if (warnings.length > 20) html += '<span style="font-size:11px;color:var(--text-muted)">외 ' + (warnings.length - 20) + '건</span>';
-    html += '</div></details>';
+    html += '</tbody></table></div>';
   }
   html += '</div>';
   panel.innerHTML = html;
@@ -1219,51 +1242,51 @@ let selectedMonths = new Set();
 function initMonthSelect() {
   const allMonths = [];
   const now = new Date();
-  const d = new Date(2025, 5, 1); // June 2025 (limit data starts from 2025-06)
+  const d = new Date(2025, 5, 1);
   while (d <= now) {
     allMonths.push(d.toISOString().slice(0, 7));
     d.setMonth(d.getMonth() + 1);
   }
-  const sel = document.getElementById('monthSelect');
-  sel.innerHTML = '';
-  allMonths.forEach(m => {
-    const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m.slice(2).replace('-', '년 ') + '월';
-    opt.selected = true;
-    sel.appendChild(opt);
+  const container = document.getElementById('monthButtons');
+  container.innerHTML = '';
+  allMonths.forEach(function(m, idx) {
+    var btn = document.createElement('button');
+    btn.className = 'tab-btn active';
+    btn.textContent = m.slice(2).replace('-', '년 ') + '월';
+    btn.dataset.month = m;
+    btn.style.cssText = 'font-size:10px;padding:2px 8px';
+    btn.onclick = function() {
+      this.classList.toggle('active');
+      selectedMonths = new Set(Array.from(document.querySelectorAll('#monthButtons .tab-btn.active')).map(function(b){ return b.dataset.month; }));
+      updateMonthInfo();
+      buildMonthlyTrendIndependent();
+    };
+    container.appendChild(btn);
   });
   selectedMonths = new Set(allMonths);
   updateMonthInfo();
 }
 
-function onMonthSelectChange() {
-  const sel = document.getElementById('monthSelect');
-  selectedMonths = new Set([...sel.options].filter(o => o.selected).map(o => o.value));
-  updateMonthInfo();
-  buildMonthlyTrendIndependent();
-}
-
 function selectAllMonths() {
-  const sel = document.getElementById('monthSelect');
-  [...sel.options].forEach(o => o.selected = true);
-  selectedMonths = new Set([...sel.options].map(o => o.value));
+  document.querySelectorAll('#monthButtons .tab-btn').forEach(function(b){ b.classList.add('active'); });
+  selectedMonths = new Set(Array.from(document.querySelectorAll('#monthButtons .tab-btn.active')).map(function(b){ return b.dataset.month; }));
   updateMonthInfo();
   buildMonthlyTrendIndependent();
 }
 
 function selectRecentMonths(n) {
-  const sel = document.getElementById('monthSelect');
-  const opts = [...sel.options];
-  opts.forEach(o => o.selected = false);
-  opts.slice(-n).forEach(o => o.selected = true);
-  selectedMonths = new Set(opts.filter(o => o.selected).map(o => o.value));
+  var btns = Array.from(document.querySelectorAll('#monthButtons .tab-btn'));
+  btns.forEach(function(b, i){
+    if (i >= btns.length - n) b.classList.add('active');
+    else b.classList.remove('active');
+  });
+  selectedMonths = new Set(Array.from(document.querySelectorAll('#monthButtons .tab-btn.active')).map(function(b){ return b.dataset.month; }));
   updateMonthInfo();
   buildMonthlyTrendIndependent();
 }
 
 function updateMonthInfo() {
-  const total = document.getElementById('monthSelect').options.length;
+  const total = document.querySelectorAll('#monthButtons .tab-btn').length;
   document.getElementById('monthSelectInfo').textContent = selectedMonths.size + '/' + total + '개월 선택';
 }
 
@@ -1562,7 +1585,23 @@ function toggleDetailSort__PATCHED(col) {
   buildDetailTable();
 }
 
-function buildDetailTable() { // buildDetailTable__ENHANCED__PATCHED
+function getDetailUrgency(elapsed) {
+  if (elapsed >= 14) return { level: 'urgent', icon: '🔴', label: '긴급', color: 'var(--accent)' };
+  if (elapsed >= 7) return { level: 'warning', icon: '🟡', label: '주의', color: 'var(--warning)' };
+  return { level: 'normal', icon: '🟢', label: '정상', color: 'var(--success)' };
+}
+function getDetailMailTemplate(r) {
+  if (r.done) return { template: '-', action: '완료' };
+  if (r.reject) return { template: '고위드 부결 안내', action: '고객 안내' };
+  if (r.card_reject) return { template: '카드사 부결+대안 메일', action: '고객 안내' };
+  var st = r.status || '';
+  if (st.indexOf('전자서명') >= 0 || st.indexOf('작성중') >= 0) return { template: '전자서명/신청서 제출 안내', action: '고객에 독촉 메일' };
+  if (st.indexOf('카드사 심사') >= 0) return { template: '템플릿#8 카드사 컨펌', action: '카드사 진행 확인' };
+  if (st.indexOf('특별심사') >= 0) return { template: 'Risk팀 심사 독촉', action: 'Risk팀 확인' };
+  if (st.indexOf('제출') >= 0) return { template: '카드사 접수 확인', action: '카드사 접수 진행' };
+  return { template: '진행 확인 메일', action: '상태 확인' };
+}
+function buildDetailTable() {
   const start = document.getElementById('filterStart').value;
   const end = document.getElementById('filterEnd').value;
   const am = getSelectedAM();
@@ -1577,12 +1616,20 @@ function buildDetailTable() { // buildDetailTable__ENHANCED__PATCHED
   if (cc) rows = rows.filter(r => r.card_co === cc);
   if (tf === '한도상향') rows = rows.filter(r => r.type === '한도상향');
   else if (tf === '카드사 추가') rows = rows.filter(r => r.type === '카드사 추가');
+
+  // Enhanced status filters
   if (sf === 'in_progress') rows = rows.filter(r => !r.done && !r.reject && !r.card_reject);
   else if (sf === 'rejected') rows = rows.filter(r => r.reject || r.card_reject);
   else if (sf === 'approved') rows = rows.filter(r => r.done);
   else if (sf === 'not_submitted') {
     const nsCorps = new Set(getFilteredRecords().filter(r2 => r2.ga && !r2.f2 && !r2.rj).map(r2 => r2.c));
     rows = rows.filter(r => nsCorps.has(r.corp));
+  } else if (sf === 'action_needed') {
+    rows = rows.filter(r => !r.done && !r.reject && !r.card_reject);
+  } else if (sf === 'urgent') {
+    rows = rows.filter(r => !r.done && r.elapsed >= 14);
+  } else if (sf === 'warning') {
+    rows = rows.filter(r => !r.done && r.elapsed >= 7 && r.elapsed < 14);
   }
 
   // Sort
@@ -1603,31 +1650,44 @@ function buildDetailTable() { // buildDetailTable__ENHANCED__PATCHED
   };
 
   let html = `<thead><tr>
-    <th>법인명</th><th>담당자</th><th>유형</th><th>카드사</th><th>상태</th>
-    <th class="num">현재한도(만)</th><th class="num">요청한도(만)</th><th class="num">승인한도(만)</th>
+    <th>긴급도</th><th>법인명</th><th>담당자</th><th>유형</th><th>카드사</th><th>상태</th>
+    <th class="num" style="cursor:pointer" onclick="toggleDetailSort__PATCHED('elapsed')">경과일${sortArrow('elapsed')}</th>
+    <th>필요 메일</th><th>다음 액션</th>
+    <th class="num">현재(만)</th><th class="num">요청(만)</th><th class="num">승인(만)</th>
     <th style="cursor:pointer" onclick="toggleDetailSort__PATCHED('init')">신청일${sortArrow('init')}</th>
-    <th>승인/부결일</th>
-    <th class="num" style="cursor:pointer" onclick="toggleDetailSort__PATCHED('elapsed')">소요일${sortArrow('elapsed')}</th>
+    <th>완료/부결일</th>
   </tr></thead><tbody>`;
 
   rows.forEach(r => {
     const endDate = r.done || r.reject || r.card_reject || '-';
-    html += `<tr data-corp="${r.corp}">
-      <td onclick="openCorpDetail('${r.corp.replace(/'/g,"\\'")}')" style="cursor:pointer;color:var(--primary)">${r.corp}</td>
+    const elapsed = r.elapsed || 0;
+    const u = getDetailUrgency(elapsed);
+    const isDone = !!(r.done || r.reject || r.card_reject);
+    const mail = getDetailMailTemplate(r);
+    const urgBadge = isDone ? '<span style="font-size:11px;color:var(--text-muted)">-</span>' :
+      '<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;background:' +
+      (u.level === 'urgent' ? 'rgba(240,96,96,0.15);color:var(--accent)' : u.level === 'warning' ? 'rgba(251,191,36,0.15);color:#b45309' : 'rgba(52,211,153,0.15);color:var(--success)') +
+      '">' + u.icon + ' ' + u.label + '</span>';
+
+    html += `<tr data-corp="${r.corp}" data-urgency="${isDone ? 'done' : u.level}" data-elapsed="${elapsed}">
+      <td style="text-align:center">${urgBadge}</td>
+      <td onclick="openCorpDetail('${r.corp.replace(/'/g,"\\'")}')" style="cursor:pointer;color:var(--primary);font-weight:600">${r.corp}</td>
       <td style="font-size:11px;color:var(--text-muted)">${r.am || '-'}</td>
       <td><span style="font-size:11px;color:var(--text-muted)">${r.type === '한도상향' ? '상향' : '추가'}</span></td>
       <td>${r.card_co || '-'}</td>
       <td>${getStatusBadge(r.status)}</td>
+      <td class="num" style="color:${isDone ? 'var(--text-muted)' : u.color};font-weight:${elapsed >= 7 ? '700' : '400'}">D+${elapsed}</td>
+      <td style="font-size:10px">${isDone ? '-' : esc(mail.template)}</td>
+      <td style="font-size:10px;color:${isDone ? 'var(--text-muted)' : 'var(--text)'}">${isDone ? (r.done ? '완료' : '부결') : esc(mail.action)}</td>
       <td class="num">${r.current ? r.current.toLocaleString() : '-'}</td>
       <td class="num">${r.requested ? r.requested.toLocaleString() : '-'}</td>
       <td class="num ${r.approved > 0 ? 'success-text' : 'muted'}">${r.approved ? r.approved.toLocaleString() : '-'}</td>
       <td>${r.init || '-'}</td>
       <td>${endDate}</td>
-      <td class="num ${r.elapsed > 7 ? 'danger' : ''}">${r.elapsed || '-'}</td>
     </tr>`;
   });
 
-  if (rows.length === 0) html += '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">데이터가 없습니다</td></tr>';
+  if (rows.length === 0) html += '<tr><td colspan="14" style="text-align:center;color:var(--text-muted);padding:24px">데이터가 없습니다</td></tr>';
   html += '</tbody>';
   document.getElementById('detailTable').innerHTML = html;
 }
@@ -2234,37 +2294,77 @@ function openCorpDetail(corpName) {
   var panel = document.getElementById('sidePanel');
   var backdrop = document.getElementById('sidePanelBackdrop');
 
+  // Approval grade based on gowid_st
+  var approvalGrade = { icon: '🟢', label: '자동승인', color: 'var(--success)', desc: '자동심사 (#4, #6)' };
+  var gs = record.gowid_st || '';
+  if (gs.indexOf('특별') >= 0 || gs.indexOf('심사') >= 0) {
+    approvalGrade = { icon: '🔴', label: '필수심사', color: 'var(--accent)', desc: '특별심사 (#1, #3, #5, #7)' };
+  }
+  // If status indicates conditional
+  var st = record.status || '';
+  if (st.indexOf('조건') >= 0) {
+    approvalGrade = { icon: '🟡', label: '조건부', color: 'var(--warning)', desc: '조건부 승인 (#2, #8)' };
+  }
+
   var statusColor = 'var(--warning)';
   var nextAction = '';
-  if (record.done || record.approved_date) { statusColor = 'var(--success)'; nextAction = '완료 — 추가 조치 불필요'; }
-  else if (record.reject) { statusColor = 'var(--accent)'; nextAction = '고위드 부결 — 고객 안내 필요'; }
-  else if (record.card_reject) { statusColor = 'var(--accent)'; nextAction = '카드사 부결 — 사유 확인 후 고객 안내'; }
-  else {
-    var st = record.status;
-    if (st === '카드사 심사중') { nextAction = '카드사 진행 확인 메일/전화'; statusColor = 'var(--info)'; }
-    else if (st === '신청서 작성중' || st === '전자서명 대기') { nextAction = '전자서명/신청서 제출 독촉'; statusColor = 'var(--warning)'; }
-    else if (st === '고위드 특별심사') { nextAction = 'Risk팀 심사 진행 확인'; statusColor = 'var(--warning)'; }
-    else if (st === '신청서 제출') { nextAction = '카드사 접수 진행 확인'; statusColor = 'var(--info)'; }
-    else { nextAction = '진행 상태 확인 필요'; }
+  var mailTemplate = '';
+  if (record.done || record.approved_date) {
+    statusColor = 'var(--success)'; nextAction = '완료 — 추가 조치 불필요'; mailTemplate = '-';
+  } else if (record.reject) {
+    statusColor = 'var(--accent)'; nextAction = '고위드 부결 — 고객 안내 필요'; mailTemplate = '고위드 부결 안내 메일';
+  } else if (record.card_reject) {
+    statusColor = 'var(--accent)'; nextAction = '카드사 부결 — 사유 확인 후 고객 안내'; mailTemplate = '카드사 부결 사유+대안 안내 메일';
+  } else {
+    if (st === '카드사 심사중') { nextAction = '카드사 진행 확인 메일/전화'; statusColor = 'var(--info)'; mailTemplate = '템플릿#8 카드사 컨펌메일 (진행 확인)'; }
+    else if (st === '신청서 작성중' || st === '전자서명 대기') { nextAction = '전자서명/신청서 제출 독촉'; statusColor = 'var(--warning)'; mailTemplate = '전자서명/신청서 제출 안내'; }
+    else if (st === '고위드 특별심사') { nextAction = 'Risk팀 심사 진행 확인'; statusColor = 'var(--warning)'; mailTemplate = 'Risk팀 심사 독촉 메일'; }
+    else if (st === '신청서 제출') { nextAction = '카드사 접수 진행 확인'; statusColor = 'var(--info)'; mailTemplate = '카드사 접수 확인 메일'; }
+    else { nextAction = '진행 상태 확인 필요'; mailTemplate = '전체 진행 상태 확인 메일'; }
   }
+
+  // Urgency
+  var elapsed = record.elapsed || 0;
+  var urgency = elapsed >= 14 ? { icon: '🔴', label: '긴급', color: 'var(--accent)' } :
+                elapsed >= 7 ? { icon: '🟡', label: '주의', color: 'var(--warning)' } :
+                { icon: '🟢', label: '정상', color: 'var(--success)' };
 
   var h = '';
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
   h += '<h3 style="font-size:16px;font-weight:700;color:var(--text-strong)">' + esc(record.corp) + '</h3>';
   h += '<button onclick="closeSidePanel()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);padding:4px">&times;</button>';
   h += '</div>';
+
+  // Status + Next Action + Mail Template
   h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;border-left:4px solid ' + statusColor + '">';
-  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">현재 상태</div>';
-  h += '<div style="font-size:14px;font-weight:700;color:var(--text-strong);margin-bottom:8px">' + esc(record.status) + '</div>';
-  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">다음 액션</div>';
-  h += '<div style="font-size:13px;color:var(--text);font-weight:600">' + nextAction + '</div>';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  h += '<div><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">현재 상태</div>';
+  h += '<div style="font-size:14px;font-weight:700;color:var(--text-strong)">' + esc(record.status) + '</div></div>';
+  h += '<div style="text-align:right"><span style="display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:' +
+    (urgency.label === '긴급' ? 'rgba(240,96,96,0.15);color:var(--accent)' : urgency.label === '주의' ? 'rgba(251,191,36,0.15);color:#b45309' : 'rgba(52,211,153,0.15);color:var(--success)') +
+    '">' + urgency.icon + ' D+' + elapsed + ' ' + urgency.label + '</span></div>';
   h += '</div>';
+  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">다음 액션</div>';
+  h += '<div style="font-size:13px;color:var(--text);font-weight:600;margin-bottom:8px">' + nextAction + '</div>';
+  // Mail template
+  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">발송 메일 템플릿</div>';
+  h += '<div style="font-size:13px;font-weight:600;color:var(--primary)">' + esc(mailTemplate) + '</div>';
+  h += '</div>';
+
+  // Approval grade
+  h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px">';
+  h += '<span style="font-size:16px">' + approvalGrade.icon + '</span>';
+  h += '<div><div style="font-size:12px;font-weight:700;color:' + approvalGrade.color + '">' + approvalGrade.label + '</div>';
+  h += '<div style="font-size:10px;color:var(--text-muted)">' + approvalGrade.desc + '</div></div>';
+  h += '</div>';
+
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
   h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">유형</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + esc(record.type) + '</div></div>';
   h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">카드사</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + esc(record.card_co || '미선택') + '</div></div>';
   h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">신청일</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + record.init + '</div></div>';
   h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">담당 AM</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + esc(record.am || '미배정') + '</div></div>';
-  h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">경과일</div><div style="font-size:13px;font-weight:600;color:' + (record.elapsed>=14?'var(--accent)':'var(--text-strong)') + '">' + record.elapsed + '일</div></div>';
+  h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">경과일</div><div style="font-size:13px;font-weight:600;color:' + urgency.color + '">' + elapsed + '일</div></div>';
+  h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">고위드 심사</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + esc(gs || '자동') + '</div></div>';
   h += '</div>';
   h += '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:600;color:var(--text-strong);margin-bottom:8px">한도 정보 (만원)</div>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">';
@@ -2300,67 +2400,157 @@ function closeSidePanel() {
 function buildTodoPanel() {
   var today = new Date();
   var todayStr = today.toISOString().slice(0,10);
+  var daysDiff = function(d) { return Math.floor((today - new Date(d)) / 86400000); };
   var records = RECORD_DATA;
   var todos = [];
 
-  records.forEach(function(r){
-    if (r.ga && !r.f2 && !r.rj && !r.done) {
-      todos.push({type:'urgent', category:'승인 미제출 독촉', corp:r.c, detail:'고위드 승인 후 신청서 미제출', action:'전자서명/신청서 제출 안내'});
-    }
-  });
-  records.forEach(function(r){
-    if (r.f3 && !r.f4 && !r.cr && !r.done && r.cd !== null && r.cd >= 5) {
-      todos.push({type:'urgent', category:'카드사 장기 미승인', corp:r.c, detail:'카드사 접수 후 ' + r.cd + '일 경과', action:'카드사 진행 확인 메일/전화'});
-    }
-  });
-  records.forEach(function(r){
-    if (r.ip && r.td !== null && r.td >= 14) {
-      todos.push({type:'warning', category:'장기 진행중', corp:r.c, detail:'총 ' + r.td + '일 경과', action:'전체 진행 상태 확인'});
-    }
-  });
-  var newToday = records.filter(function(r){ return r.d === todayStr; });
-  if (newToday.length > 0) {
-    todos.push({type:'new', category:'오늘 신규 접수', corp:newToday.map(function(r){return r.c}).join(', '), detail:newToday.length + '건 신규 신청', action:'접수 확인 및 한도 심사 진행'});
+  // Mail template mapping
+  var MAIL_TEMPLATES = {
+    '승인 미제출 독촉': { template: '전자서명/신청서 제출 안내', target: '고객' },
+    '카드사 장기 미승인': { template: '템플릿#8 카드사 컨펌메일', target: '카드사' },
+    '카드사 부결 안내': { template: '부결 사유+대안 안내 메일', target: '고객' },
+    'SLA 초과 — 한도조회': { template: '한도조회 독촉', target: '내부' },
+    'SLA 초과 — 고위드심사': { template: 'Risk팀 심사 독촉', target: 'Risk팀' },
+    'SLA 초과 — 신청서제출': { template: '신청서 제출 독촉', target: '고객' },
+    'SLA 초과 — 카드사심사': { template: '카드사 심사 확인', target: '카드사' },
+    '장기 진행중': { template: '전체 진행 상태 확인 메일', target: '고객/내부' }
+  };
+
+  function getUrgency(days) {
+    if (days >= 14) return { level: 'urgent', icon: '🔴', label: '긴급', color: 'var(--accent)' };
+    if (days >= 7) return { level: 'warning', icon: '🟡', label: '주의', color: 'var(--warning)' };
+    return { level: 'normal', icon: '🟢', label: '정상', color: 'var(--success)' };
   }
-  records.forEach(function(r){
-    if (!r.done && (r.lo || r.go || r.so || r.co)) {
-      var ot = [];
-      if (r.lo) ot.push('한도조회');
-      if (r.go) ot.push('고위드심사');
-      if (r.so) ot.push('신청서제출');
-      if (r.co) ot.push('카드사심사');
-      todos.push({type:'warning', category:'SLA 초과', corp:r.c, detail:ot.join(',') + ' SLA 초과', action:'해당 구간 병목 해소'});
+
+  // 승인 미제출 독촉
+  records.forEach(function(r) {
+    if (r.ga && !r.f2 && !r.rj && !r.done) {
+      var days = daysDiff(r.d);
+      var u = getUrgency(days);
+      todos.push({ category: '승인 미제출 독촉', corp: r.c, days: days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['승인 미제출 독촉'] });
+    }
+  });
+  // 카드사 장기 미승인
+  records.forEach(function(r) {
+    if (r.f3 && !r.f4 && !r.cr && !r.done) {
+      var days = r.cd !== null && r.cd !== undefined ? r.cd : daysDiff(r.d);
+      var u = getUrgency(days);
+      if (days >= 5) {
+        todos.push({ category: '카드사 장기 미승인', corp: r.c, days: days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['카드사 장기 미승인'] });
+      }
+    }
+  });
+  // 카드사 부결 안내
+  records.forEach(function(r) {
+    if (r.cr && !r.done) {
+      var days = daysDiff(r.d);
+      var u = getUrgency(days);
+      todos.push({ category: '카드사 부결 안내', corp: r.c, days: days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['카드사 부결 안내'] });
+    }
+  });
+  // SLA 초과
+  records.forEach(function(r) {
+    if (!r.done) {
+      var days = daysDiff(r.d);
+      var u = getUrgency(days);
+      if (r.lo) todos.push({ category: 'SLA 초과', corp: r.c, days: r.ld || days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['SLA 초과 — 한도조회'], slaType: '한도조회' });
+      if (r.go) todos.push({ category: 'SLA 초과', corp: r.c, days: r.nd || days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['SLA 초과 — 고위드심사'], slaType: '고위드심사' });
+      if (r.so) todos.push({ category: 'SLA 초과', corp: r.c, days: r.sd || days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['SLA 초과 — 신청서제출'], slaType: '신청서제출' });
+      if (r.co) todos.push({ category: 'SLA 초과', corp: r.c, days: r.cd || days, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['SLA 초과 — 카드사심사'], slaType: '카드사심사' });
+    }
+  });
+  // 장기 진행중
+  records.forEach(function(r) {
+    if (r.ip && !r.done && r.td !== null && r.td >= 14) {
+      var u = getUrgency(r.td);
+      todos.push({ category: '장기 진행중', corp: r.c, days: r.td, urgency: u, am: r.am || '-', cc: r.cc || '-', mail: MAIL_TEMPLATES['장기 진행중'] });
     }
   });
 
-  var pri = {urgent:0, warning:1, info:2, new:3};
-  todos.sort(function(a,b){ return (pri[a.type]||9) - (pri[b.type]||9); });
+  // Sort: urgent first, then by days desc
+  var priMap = { urgent: 0, warning: 1, normal: 2 };
+  todos.sort(function(a, b) {
+    var pd = (priMap[a.urgency.level] || 9) - (priMap[b.urgency.level] || 9);
+    return pd !== 0 ? pd : b.days - a.days;
+  });
 
   var el = document.getElementById('todoPanel');
   var cnt = document.getElementById('todoCount');
   if (!el) return;
-  if (todos.length === 0) { el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">처리 필요 항목이 없습니다</div>'; if(cnt)cnt.textContent=''; return; }
-  if(cnt) cnt.textContent = todos.length + '건 처리 필요';
+  if (todos.length === 0) {
+    el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">처리 필요 항목이 없습니다</div>';
+    if (cnt) cnt.textContent = '';
+    return;
+  }
 
-  var icons = {urgent:'🔴', warning:'🟡', info:'🔵', new:'🟢'};
-  var labels = {urgent:'긴급', warning:'주의', info:'안내', new:'신규'};
-  var colors = {urgent:'var(--accent)', warning:'var(--warning)', new:'var(--success)', info:'var(--info)'};
+  // Summary bar
+  var urgentCount = todos.filter(function(t) { return t.urgency.level === 'urgent'; }).length;
+  var warningCount = todos.filter(function(t) { return t.urgency.level === 'warning'; }).length;
+  if (cnt) cnt.textContent = '🔴 긴급 ' + urgentCount + '건 | 🟡 주의 ' + warningCount + '건 | 총 ' + todos.length + '건 조치 필요';
 
+  // Group by category
   var groups = {};
-  todos.forEach(function(t){ if(!groups[t.category])groups[t.category]=[]; groups[t.category].push(t); });
+  var groupOrder = [];
+  todos.forEach(function(t) {
+    var key = t.category;
+    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+    groups[key].push(t);
+  });
 
-  var html = '<div style="display:grid;gap:8px">';
-  Object.keys(groups).forEach(function(cat){
+  var html = '';
+  // Summary bar
+  html += '<div style="display:flex;gap:12px;align-items:center;padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);margin-bottom:12px;font-size:12px;font-weight:600">';
+  html += '<span style="color:var(--accent)">🔴 긴급 ' + urgentCount + '건</span>';
+  html += '<span style="color:var(--warning)">🟡 주의 ' + warningCount + '건</span>';
+  html += '<span style="color:var(--text-muted);margin-left:auto">총 ' + todos.length + '건 조치 필요</span>';
+  html += '</div>';
+
+  html += '<div style="display:grid;gap:8px">';
+  groupOrder.forEach(function(cat) {
     var items = groups[cat];
-    var tp = items[0].type;
-    html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px 16px;border-left:3px solid ' + colors[tp] + '">';
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span>' + icons[tp] + '</span><strong style="font-size:13px;color:var(--text-strong)">' + cat + '</strong><span style="font-size:11px;color:var(--text-muted);margin-left:auto">' + labels[tp] + ' ' + items.length + '건</span></div>';
-    html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-    items.forEach(function(item){
-      var ec = esc(item.corp);
-      html += '<span onclick="scrollToCorpDetail(\'' + ec.replace(/'/g,"\\'") + '\')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:var(--card);border-radius:20px;font-size:11px;color:var(--text);border:1px solid var(--border);transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--primary)\';this.style.color=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text)\'" title="' + esc(item.detail) + '\n→ ' + esc(item.action) + '">' + ec + '</span>';
+    var defaultShow = 5;
+    var hasMore = items.length > defaultShow;
+    var catId = 'todo_' + cat.replace(/[^a-zA-Z가-힣]/g, '_');
+
+    html += '<details open style="background:var(--bg);border-radius:var(--radius-sm);padding:12px 16px;border-left:3px solid ' + items[0].urgency.color + '">';
+    html += '<summary style="cursor:pointer;display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;font-weight:700;color:var(--text-strong)">';
+    html += items[0].urgency.icon + ' ' + cat;
+    html += '<span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:auto">' + items.length + '건</span>';
+    html += '</summary>';
+
+    html += '<div style="overflow-x:auto"><table class="data-table" style="font-size:11px;width:100%"><thead><tr>';
+    html += '<th style="width:40px">긴급도</th><th>법인명</th><th style="width:60px">경과일</th><th>필요 메일</th><th>담당 AM</th><th>카드사</th>';
+    html += '</tr></thead><tbody>';
+    var showItems = hasMore ? items.slice(0, defaultShow) : items;
+    showItems.forEach(function(item) {
+      var corpEsc = esc(item.corp);
+      html += '<tr onclick="scrollToCorpDetail(\'' + corpEsc.replace(/'/g,"\\'") + '\')" style="cursor:pointer">';
+      html += '<td style="text-align:center">' + item.urgency.icon + '</td>';
+      html += '<td style="color:var(--primary);font-weight:600">' + corpEsc + '</td>';
+      html += '<td class="num" style="color:' + item.urgency.color + ';font-weight:600">D+' + item.days + '</td>';
+      html += '<td style="font-size:10px">' + esc(item.mail.template) + ' <span style="color:var(--text-muted)">(' + item.mail.target + ')</span></td>';
+      html += '<td>' + esc(item.am) + '</td>';
+      html += '<td>' + esc(item.cc) + '</td>';
+      html += '</tr>';
     });
-    html += '</div></div>';
+    if (hasMore) {
+      html += '<tr id="' + catId + '_more" style="display:none"></tr>';
+      var hiddenItems = items.slice(defaultShow);
+      hiddenItems.forEach(function(item) {
+        var corpEsc = esc(item.corp);
+        html += '<tr class="' + catId + '_extra" style="display:none;cursor:pointer" onclick="scrollToCorpDetail(\'' + corpEsc.replace(/'/g,"\\'") + '\')">';
+        html += '<td style="text-align:center">' + item.urgency.icon + '</td>';
+        html += '<td style="color:var(--primary);font-weight:600">' + corpEsc + '</td>';
+        html += '<td class="num" style="color:' + item.urgency.color + ';font-weight:600">D+' + item.days + '</td>';
+        html += '<td style="font-size:10px">' + esc(item.mail.template) + ' <span style="color:var(--text-muted)">(' + item.mail.target + ')</span></td>';
+        html += '<td>' + esc(item.am) + '</td>';
+        html += '<td>' + esc(item.cc) + '</td>';
+        html += '</tr>';
+      });
+      html += '<tr><td colspan="6" style="text-align:center"><button class="tab-btn" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();var extras=document.querySelectorAll(\'.' + catId + '_extra\');var show=extras[0]&&extras[0].style.display===\'none\';extras.forEach(function(r){r.style.display=show?\'\':\'none\';});this.textContent=show?\'접기\':\'+' + hiddenItems.length + '건 더보기\'">+' + hiddenItems.length + '건 더보기</button></td></tr>';
+    }
+    html += '</tbody></table></div>';
+    html += '</details>';
   });
   html += '</div>';
   el.innerHTML = html;
