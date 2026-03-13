@@ -432,8 +432,14 @@
     .collapse-body { display: none; }
     .collapse-body.open { display: block; }
     /* ── HIGHLIGHT ROW ── */
-    @keyframes highlightFade { 0% { background: rgba(59,130,246,0.3); } 100% { background: transparent; } }
-    .row-highlight { animation: highlightFade 3s ease; }
+    @keyframes highlightFade {
+      0%, 25% { background: rgba(59,130,246,0.35); }
+      50% { background: rgba(59,130,246,0.15); }
+      75% { background: rgba(59,130,246,0.35); }
+      100% { background: transparent; }
+    }
+    .row-highlight td { background: rgba(59,130,246,0.35) !important; }
+    .row-highlight { animation: highlightFade 4s ease-out; }
     /* ── TOTAL ROW ── */
     .data-table .total-row td { font-weight: 700; background: var(--filter-bg); border-top: 2px solid var(--border-strong); }
 </style>
@@ -2561,22 +2567,27 @@ function closeVersionHistory() { document.getElementById('versionModal').classLi
 function scrollToCorpDetail(corpName) {
   var detailSection = document.getElementById('detailSection');
   if (!detailSection) return;
+  // 기존 하이라이트 제거
+  document.querySelectorAll('.row-highlight').forEach(function(el) { el.classList.remove('row-highlight'); });
+  // 접혀있으면 펼치기
   var body = document.getElementById('detailTableWrap');
   if (body && !body.classList.contains('open')) {
     var toggle = detailSection.querySelector('.collapse-toggle');
     if (toggle) toggleCollapse(toggle);
   }
-  detailSection.scrollIntoView({behavior:'smooth', block:'start'});
+  // 해당 행 찾아서 바로 스크롤 + 하이라이트
   setTimeout(function() {
+    var found = false;
     var rows = document.querySelectorAll('tr[data-corp]');
     rows.forEach(function(row) {
-      if (row.dataset.corp === corpName) {
-        row.classList.add('row-highlight');
+      if (row.dataset.corp === corpName && !found) {
+        found = true;
         row.scrollIntoView({behavior:'smooth', block:'center'});
-        setTimeout(function() { row.classList.remove('row-highlight'); }, 3000);
+        row.classList.add('row-highlight');
+        setTimeout(function() { row.classList.remove('row-highlight'); }, 5000);
       }
     });
-  }, 600);
+  }, 300);
 }
 
 function openCorpDetail(corpName) {
