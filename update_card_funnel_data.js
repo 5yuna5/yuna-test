@@ -175,24 +175,18 @@ async function fetchRecordData() {
         REPLACE(c.resCompanyIdentityNo, '-', '') AS brn_key,
         COALESCE(c.resCompanyNm, REPLACE(c.resCompanyIdentityNo, '-', '')) AS corp_name,
         IFNULL(dim.assigned_am, '') AS am,
-        1 AS sub, 1 AS apr, 1 AS sig, 1 AS ls, 1 AS lp, 1 AS lr,
-        CASE WHEN la_chk.totalLimitAmount IS NOT NULL AND la_chk.totalLimitAmount <> 0 THEN 1 ELSE 0 END AS lnz,
-        CASE WHEN la_chk.totalLimitAmount IS NOT NULL AND la_chk.totalLimitAmount = 0 THEN 1 ELSE 0 END AS lz,
-        1 AS ci, 1 AS ca, 1 AS cd,
+        0 AS sub, 0 AS apr, 0 AS sig, 0 AS ls, 0 AS lp, 0 AS lr,
+        0 AS lnz, 0 AS lz,
+        0 AS ci, 0 AS ca, 1 AS cd,
         CASE WHEN dim.first_card_spend_at IS NOT NULL THEN 1 ELSE 0 END AS fs,
         FORMAT_DATE('%Y-%m-%d', DATE(MIN(ci.issuedAt))) AS issued_date,
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
-        CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5
+        CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
+        1 AS no_app
       FROM \`gowid-prd.ods_stream_gowid.Corp\` c
       JOIN \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci ON ci.idxCorp = c.idx
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` dim ON dim.corp_id = c.idx
-      LEFT JOIN (
-        SELECT idxCorp, totalLimitAmount
-        FROM \`gowid-prd.ods_stream_gowid.LimitApplication\`
-        WHERE applicationType = 'JOIN' AND isNewCorp = 1
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY idxCorp ORDER BY updatedAt DESC) = 1
-      ) la_chk ON la_chk.idxCorp = c.idx
       WHERE c.resCompanyIdentityNo IS NOT NULL
         AND ci.issuedAt IS NOT NULL
         AND DATE(ci.issuedAt) >= DATE '2025-01-01'
@@ -200,13 +194,11 @@ async function fetchRecordData() {
           SELECT brn_key FROM cohort
         )
       GROUP BY c.resCompanyIdentityNo, c.resCompanyNm, dim.assigned_am,
-               la_chk.totalLimitAmount, dim.first_card_spend_at
+               dim.first_card_spend_at
     )
-    SELECT * FROM (
-      SELECT * FROM base
-      UNION ALL
-      SELECT * FROM extra_issued
-    )
+    SELECT *, 0 AS no_app FROM base
+    UNION ALL
+    SELECT * FROM extra_issued
     ORDER BY submit_date DESC
   `);
 
@@ -225,6 +217,7 @@ async function fetchRecordData() {
     dt: r.dt != null ? Number(r.dt) : null,
     d5: r.d5 != null ? Number(r.d5) : null,
     id: r.issued_date || null,
+    na: Number(r.no_app || 0),
   }));
 }
 
