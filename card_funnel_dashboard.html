@@ -779,7 +779,7 @@ function buildFunnel(t) {
     if (items.length === 0) return '';
     const shown = items.slice(0, 30);
     let list = shown.map(r =>
-      '<li><span class="tt-corp">' + r.c + '</span><span class="tt-meta">' + (r.am || '-') + ' | ' + r.d + '</span></li>'
+      '<li><span class="tt-corp">' + esc(r.c) + '</span><span class="tt-meta">' + esc(r.am || '-') + ' | ' + r.d + '</span></li>'
     ).join('');
     const more = items.length > 30 ? '<div class="tt-count">외 ' + (items.length - 30) + '건 더</div>' : '';
     return '<div class="funnel-tooltip"><button class="pin-btn" onclick="togglePin(event)">📌</button><h5>' + title + ' (' + items.length + '건)</h5><ul class="tt-list">' + list + '</ul>' + more + '</div>';
@@ -1222,7 +1222,7 @@ function openCorpDetail(corpName) {
 
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
   html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">신청일</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + record.d + '</div></div>';
-  html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">담당 AM</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + (record.am || '미배정') + '</div></div>';
+  html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">담당 AM</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + esc(record.am || '미배정') + '</div></div>';
   if (record.id) html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px"><div style="font-size:10px;color:var(--text-muted)">발급일</div><div style="font-size:13px;font-weight:600;color:var(--text-strong)">' + record.id + '</div></div>';
   html += '</div>';
 
@@ -1304,7 +1304,7 @@ function buildTodoPanel(records) {
   function limitResultDate(r) {
     if (r.d1 === null || r.d2 === null || r.d3 === null) return null;
     var d = new Date(r.d);
-    d.setDate(d.getDate() + r.d1 + (r.d2||0) + r.d3);
+    d.setDate(d.getDate() + r.d1 + r.d2 + r.d3);
     return d;
   }
 
@@ -1492,6 +1492,19 @@ function buildTodoPanel(records) {
 function buildDetailTable(records) {
   var today = new Date();
   function daysSince(d) { return d ? Math.max(0, Math.floor((today - new Date(d)) / 86400000)) : 0; }
+  function approvalDate(r) {
+    if (r.d1 === null) return null;
+    var d = new Date(r.d); d.setDate(d.getDate() + r.d1); return d;
+  }
+  function signupDate(r) {
+    if (r.d1 === null || r.d2 === null) return null;
+    var d = new Date(r.d); d.setDate(d.getDate() + r.d1 + r.d2); return d;
+  }
+  function limitResultDate(r) {
+    if (r.d1 === null || r.d2 === null || r.d3 === null) return null;
+    var d = new Date(r.d); d.setDate(d.getDate() + r.d1 + r.d2 + r.d3); return d;
+  }
+  function daysSinceDate(d) { return d ? Math.max(0, Math.floor((today - d) / 86400000)) : 0; }
 
   if (records.length === 0) {
     document.getElementById('detailTableWrap').innerHTML = '<div class="card"><div style="padding:16px;text-align:center;color:var(--text-muted)">데이터 없음</div></div>';
@@ -1530,15 +1543,15 @@ function buildDetailTable(records) {
       nextAction = '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824 \uC5F0\uB77D';
     } else if (r.lz) {
       status = '\uD55C\uB3C40\uC6D0'; statusColor = 'var(--accent)';
-      elapsed = daysSince(r.d);
+      var lrd0 = limitResultDate(r);
+      elapsed = lrd0 ? daysSinceDate(lrd0) : daysSince(r.d);
       mailType = '\uBCF4\uC99D\uAE08/\uD2B9\uBCC4\uC2EC\uC0AC \uC548\uB0B4';
       nextAction = '\uBCF4\uC99D\uAE08 \uC548\uB0B4 or \uD2B9\uBCC4\uC2EC\uC0AC \uC694\uCCAD';
       if (elapsed >= 14) { urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; } else if (elapsed >= 7) { urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
     } else if (r.lnz) {
       status = '\uC720\uD6A8\uD55C\uB3C4\xB7\uBBF8\uBC1C\uAE09'; statusColor = 'var(--warning)';
-      var totalSLA = (r.d1||0) + (r.d2||0) + (r.d3||0);
-      elapsed = daysSince(r.d) - totalSLA;
-      if (elapsed < 0) elapsed = 0;
+      var lrd = limitResultDate(r);
+      elapsed = lrd ? daysSinceDate(lrd) : daysSince(r.d);
       if (elapsed >= 30) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
       else if (elapsed >= 14) { mailType = '\uBC1C\uAE09 \uB9AC\uB9C8\uC778\uB4DC'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
       else if (elapsed >= 7) { mailType = '\uCE74\uB4DC \uBC1C\uAE09 \uC548\uB0B4 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
@@ -1548,17 +1561,16 @@ function buildDetailTable(records) {
       elapsed = daysSince(r.d);
     } else if (r.sig) {
       status = '\uAC00\uC785\uC644\uB8CC\xB7\uD55C\uB3C4\uBBF8\uC2DC\uC791'; statusColor = 'var(--info)';
-      var totalSLA = (r.d1||0) + (r.d2||0);
-      elapsed = daysSince(r.d) - totalSLA;
-      if (elapsed < 0) elapsed = 0;
+      var sd = signupDate(r);
+      elapsed = sd ? daysSinceDate(sd) : daysSince(r.d);
       if (elapsed >= 30) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
       else if (elapsed >= 14) { mailType = '\uD55C\uB3C4\uC870\uD68C \uB9AC\uB9C8\uC778\uB4DC'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
       else if (elapsed >= 5) { mailType = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
       nextAction = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4';
     } else if (r.apr) {
       status = '\uC2B9\uC778\xB7\uBBF8\uAC00\uC785'; statusColor = 'var(--warning)';
-      elapsed = daysSince(r.d) - (r.d1||0);
-      if (elapsed < 0) elapsed = 0;
+      var ad = approvalDate(r);
+      elapsed = ad ? daysSinceDate(ad) : daysSince(r.d);
       if (elapsed >= 14) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
       else if (elapsed >= 7) { mailType = '\uAC00\uC785 \uB9AC\uB9C8\uC778\uB4DC \uBA54\uC77C'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
       else if (elapsed >= 3) { mailType = '\uAC00\uC785 \uC548\uB0B4 \uBA54\uC77C'; urgIcon = '\uD83D\uDFE2'; }
@@ -1571,7 +1583,7 @@ function buildDetailTable(records) {
     html += '<tr data-corp="' + esc(r.c) + '" data-urg="' + urgClass + '" data-done="' + (r.fs?1:0) + '" data-action="' + (mailType !== '-' ? 1 : 0) + '">';
     html += '<td style="white-space:nowrap">' + r.d + '</td>';
     html += '<td onclick="openCorpDetail(\'' + esc(r.c).replace(/'/g, "\\'") + '\')" style="cursor:pointer;color:var(--primary);font-weight:600">' + esc(r.c) + '</td>';
-    html += '<td>' + (r.am || '-') + '</td>';
+    html += '<td>' + esc(r.am || '-') + '</td>';
     html += '<td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;color:#fff;background:' + statusColor + '">' + status + '</span></td>';
     html += '<td style="font-weight:600;color:' + (elapsed >= 14 ? 'var(--accent)' : elapsed >= 7 ? '#b45309' : 'var(--text)') + '">D+' + elapsed + '</td>';
     html += '<td>' + urgIcon + '</td>';
