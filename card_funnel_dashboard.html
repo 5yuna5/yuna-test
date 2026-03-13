@@ -835,7 +835,7 @@ function buildAlerts(records) {
   function daysDiff(d) { return Math.floor((today - new Date(d)) / 86400000); }
 
   var alerts = [];
-  records.forEach(function(r) {
+  RECORD_DATA.forEach(function(r) {
     if (r.na) return; // CardApplication 없는 법인 제외
     var days = daysDiff(r.d);
     var dSinceApproval = days - (r.d1||0);
@@ -1541,18 +1541,18 @@ function closeSidePanel() {
 
 // ─── SCROLL TO CORP DETAIL ───
 function scrollToCorpDetail(corpName) {
-  var detailSection = document.getElementById('detailSection');
-  if (!detailSection) return;
-  // 기존 하이라이트 제거
-  document.querySelectorAll('.row-highlight').forEach(function(el) { el.classList.remove('row-highlight'); });
-  // 접혀있으면 펼치기
-  var body = document.getElementById('detailTableWrap');
-  if (body && !body.classList.contains('open')) {
-    var toggle = detailSection.querySelector('.collapse-toggle');
-    if (toggle) toggleCollapse(toggle);
-  }
-  // 해당 행 찾아서 바로 스크롤 + 하이라이트
-  setTimeout(function() {
+  function doScroll() {
+    var detailSection = document.getElementById('detailSection');
+    if (!detailSection) return false;
+    // 기존 하이라이트 제거
+    document.querySelectorAll('.row-highlight').forEach(function(el) { el.classList.remove('row-highlight'); });
+    // 접혀있으면 펼치기
+    var body = document.getElementById('detailTableWrap');
+    if (body && !body.classList.contains('open')) {
+      var toggle = detailSection.querySelector('.collapse-toggle');
+      if (toggle) toggleCollapse(toggle);
+    }
+    // 해당 행 찾기
     var found = false;
     var rows = document.querySelectorAll('#detailTableWrap tr[data-corp]');
     rows.forEach(function(row) {
@@ -1563,6 +1563,17 @@ function scrollToCorpDetail(corpName) {
         setTimeout(function() { row.classList.remove('row-highlight'); }, 5000);
       }
     });
+    return found;
+  }
+
+  // 먼저 현재 필터에서 찾기
+  setTimeout(function() {
+    if (!doScroll()) {
+      // 못 찾으면 날짜 필터를 "전체"로 전환 후 재시도
+      resetDateRange();
+      applyFilter();
+      setTimeout(function() { doScroll(); }, 100);
+    }
   }, 300);
 }
 
