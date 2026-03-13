@@ -627,7 +627,7 @@
   <!-- ── DETAIL TABLE ── -->
   <div class="section" id="detailSection">
     <div class="section-title collapse-toggle open" onclick="toggleCollapse(this)" style="display:flex;align-items:center;gap:8px">
-      <span><span class="arrow">▶</span> 건별 상세</span><button onclick="event.stopPropagation();exportDetailCSV()" class="tab-btn" style="padding:2px 10px;font-size:11px;margin-left:auto">CSV 내보내기</button>
+      <span><span class="arrow">▶</span> 건별 상세</span><button id="toggleCompletedBtn" onclick="event.stopPropagation();toggleHideCompleted()" class="tab-btn active" style="padding:2px 10px;font-size:11px;margin-left:auto">완료 숨김</button><button onclick="event.stopPropagation();exportDetailCSV()" class="tab-btn" style="padding:2px 10px;font-size:11px">CSV 내보내기</button>
     </div>
     <div class="collapse-body open" id="detailTableWrap">
     <div class="tab-bar" style="flex-wrap:wrap;gap:4px">
@@ -1859,6 +1859,17 @@ function buildCardCoTable() {
 let currentDetailTypeFilter = 'all';
 let currentDetailStatusFilter = 'all';
 let detailSortCol__PATCHED = null; // 'init' | 'elapsed'
+let hideCompleted = true; // 기본: 완료 건 숨김
+
+function toggleHideCompleted() {
+  hideCompleted = !hideCompleted;
+  var btn = document.getElementById('toggleCompletedBtn');
+  if (btn) {
+    btn.textContent = hideCompleted ? '완료 숨김' : '완료 포함';
+    btn.classList.toggle('active', hideCompleted);
+  }
+  buildDetailTable();
+}
 let detailSortDir = 1; // 1 = asc, -1 = desc
 
 function getStatusBadge(status) {
@@ -1910,6 +1921,9 @@ function buildDetailTable() {
   if (cc) rows = rows.filter(r => r.card_co === cc);
   if (tf === '한도상향') rows = rows.filter(r => r.type === '한도상향');
   else if (tf === '카드사 추가') rows = rows.filter(r => r.type === '카드사 추가');
+
+  // 완료 건 숨기기 (토글)
+  if (hideCompleted && sf === 'all') rows = rows.filter(r => !r.done);
 
   // Enhanced status filters
   if (sf === 'in_progress') rows = rows.filter(r => !r.done && !r.reject && !r.card_reject);
