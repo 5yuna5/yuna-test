@@ -2091,6 +2091,7 @@ function buildCardCoComm(records) {
 
     // Only include records where card application was submitted (ca=1) but card not yet issued (cd=0)
     if (!r.ca || r.cd) return; // skip if not applied or already issued
+    if (r.lz) return; // 한도 0원은 카드사 협의 전 — 제외
 
     var elapsed = daysDiff(r.d);
     var corp = r.c || '';
