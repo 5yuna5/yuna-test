@@ -362,6 +362,10 @@
     .info-icon:hover .info-popup,
     .info-icon.active .info-popup { display: block; pointer-events: auto; }
     @media (max-width: 768px) { .info-icon .info-popup { left: auto; right: 0; max-width: 80vw; } }
+    .floating-nav { position:fixed; right:20px; top:50%; transform:translateY(-50%); z-index:90; background:var(--card); border:1px solid var(--border-strong); border-radius:var(--radius); padding:8px 4px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:2px; }
+    .floating-nav a { display:block; padding:6px 10px; font-size:10px; color:var(--text-muted); text-decoration:none; border-radius:4px; white-space:nowrap; transition:all 0.15s; }
+    .floating-nav a:hover { background:var(--primary-dim); color:var(--primary); }
+    @media (max-width:768px) { .floating-nav { display:none; } }
   </style>
 </head>
 <body>
@@ -381,7 +385,7 @@
 
 <header>
   <div class="header-left">
-    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.3</span></h1>
+    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.4</span></h1>
     <p>mart_limit_application.card_application_funnel | 업데이트: 2026-03-16 | <span id="freshness" style="font-weight:500"></span></p>
   </div>
   <div class="header-right">
@@ -415,7 +419,7 @@
   </div>
 
   <!-- ── KPI SUMMARY ── -->
-  <div class="section">
+  <div class="section" id="kpiSection">
     <div class="section-title">핵심 지표 <span class="badge" id="periodBadge">전체 기간</span></div>
     <div class="kpi-grid" id="kpiGrid"></div>
     <div id="riskSummary"></div>
@@ -426,7 +430,7 @@
   <div id="alertPanel" style="margin-bottom:16px"></div>
 
   <!-- ── TODAY'S TODO ── -->
-  <section style="margin-bottom:var(--section-gap)">
+  <section id="todoSection" style="margin-bottom:var(--section-gap)">
     <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <h2 style="font-size:15px;font-weight:700;color:var(--text-strong)">오늘 할 일</h2>
@@ -437,7 +441,7 @@
   </section>
 
   <!-- ── FUNNEL VISUAL ── -->
-  <div class="section">
+  <div class="section" id="funnelSection">
     <div class="section-title">발급 퍼널 단계별 현황 <span class="badge">합산</span></div>
     <div class="card">
       <div class="funnel-container" id="funnelVisual"></div>
@@ -445,7 +449,7 @@
   </div>
 
   <!-- ── MONTHLY TREND (INDEPENDENT) ── -->
-  <div class="section">
+  <div class="section" id="trendSection">
     <div class="section-title">월별 전환율 트렌드 <span class="badge">필터 독립</span></div>
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
@@ -483,7 +487,7 @@
   </div>
 
   <!-- ── SLA ── -->
-  <div class="section">
+  <div class="section" id="slaSection">
     <div class="section-title">SLA 소요일 <span class="info-icon" title="평균 실적">?<span class="info-popup"><strong>평균 실적 SLA</strong><br>각 구간의 수치는 필터 범위 내 완료 건의 <strong>실제 평균 소요일</strong>입니다. 목표 SLA가 아닌 실측 데이터입니다.</span></span></div>
     <div class="sla-grid" id="slaGrid"></div>
   </div>
@@ -610,7 +614,7 @@ function getFilteredRecords() {
     if (dateMode === 'issued' && !dt) return false; // 발급일 모드에서 미발급 건 제외
     if (start && dt < start) return false;
     if (end && dt > end) return false;
-    if (am && r.am !== am) return false;
+    if (am && !(r.am && r.am.split(',').some(function(a) { return a.trim() === am; }))) return false;
     return true;
   });
 }
@@ -670,7 +674,8 @@ function applyFilter() {
   const start = document.getElementById('filterStart').value;
   const end = document.getElementById('filterEnd').value;
   const modeLabel = dateMode === 'issued' ? '발급일' : '신청일';
-  document.getElementById('filterInfo').textContent = `${modeLabel} 기준 ${records.length}건 / ${RECORD_DATA.length}건`;
+  var subCount = records.filter(function(r) { return r.sub; }).length;
+  document.getElementById('filterInfo').textContent = `${modeLabel} 기준 ${subCount}건(신청) / ${records.length}건(전체)`;
   document.getElementById('periodBadge').textContent = (start && end ? `${start} ~ ${end}` : '전체 기간') + ` (${modeLabel})`;
 
   buildKPIs(funnel, sla);
@@ -698,6 +703,16 @@ function applyFilter() {
 
 // ─── XSS ESCAPE ───
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ─── CRM TEXT SANITIZE ───
+function sanitizeCRM(text) {
+  if (!text) return '';
+  var el = document.createElement('div');
+  el.innerHTML = text;
+  text = el.textContent || el.innerText || '';
+  text = text.replace(/```[^`]*```/g, '').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
+  return text.trim();
+}
 
 // ─── MAIL TEMPLATES ───
 var MAIL_TEMPLATES = {
@@ -2330,8 +2345,10 @@ function openCommMailDraft(corpName, commType, elapsed, date, am, cardCo) {
 
   // Action buttons
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<button onclick="commCopyAll(this)" style="flex:1;background:var(--primary);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;min-height:44px">클립보드 복사</button>';
-  html += '<button onclick="commOpenMailto()" style="flex:1;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text);min-height:44px">메일 앱으로 열기</button>';
+  html += '<button onclick="commCopySubject(this)" style="flex:1;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:10px;font-size:12px;cursor:pointer;color:var(--text);min-height:44px">제목만 복사</button>';
+  html += '<button onclick="commCopyBody(this)" style="flex:1;background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:10px;font-size:12px;cursor:pointer;color:var(--text);min-height:44px">본문만 복사</button>';
+  html += '<button onclick="commCopyAll(this)" style="flex:1;background:var(--primary);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;min-height:44px">전체 복사</button>';
+  html += '<button onclick="commOpenMailto()" style="background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:10px 16px;font-size:13px;cursor:pointer;color:var(--text-muted);min-height:44px">메일 앱</button>';
   html += '<button onclick="closeCommMailModal()" style="background:var(--card);border:1px solid var(--border-strong);border-radius:6px;padding:10px 16px;font-size:13px;cursor:pointer;color:var(--text-muted);min-height:44px">닫기</button>';
   html += '</div>';
 
@@ -2356,6 +2373,22 @@ function commCopyAll(btn) {
   });
 }
 
+function commCopySubject(btn) {
+  var el = document.getElementById('commSubjectInput');
+  if (!el) return;
+  navigator.clipboard.writeText(el.value).then(function() {
+    var orig = btn.textContent; btn.textContent = '복사됨!'; setTimeout(function(){btn.textContent = orig;}, 1500);
+  });
+}
+
+function commCopyBody(btn) {
+  var el = document.getElementById('commBodyTextarea');
+  if (!el) return;
+  navigator.clipboard.writeText(el.value).then(function() {
+    var orig = btn.textContent; btn.textContent = '복사됨!'; setTimeout(function(){btn.textContent = orig;}, 1500);
+  });
+}
+
 function commOpenMailto() {
   var subj = document.getElementById('commSubjectInput') ? document.getElementById('commSubjectInput').value : '';
   var body = document.getElementById('commBodyTextarea') ? document.getElementById('commBodyTextarea').value : '';
@@ -2373,7 +2406,14 @@ function init() {
   renderFreshness();
 
   // AM 드롭다운 채우기
-  const amSet = new Set(RECORD_DATA.map(r => r.am).filter(a => a && a !== '옥래협'));
+  const amSet = new Set();
+  RECORD_DATA.forEach(function(r) {
+    if (!r.am || r.am === '옥래협') return;
+    r.am.split(',').forEach(function(a) {
+      a = a.trim();
+      if (a && a !== '옥래협') amSet.add(a);
+    });
+  });
   const amSelect = document.getElementById('filterAM');
   [...amSet].sort().forEach(am => {
     const opt = document.createElement('option');
@@ -2519,6 +2559,16 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<nav class="floating-nav" id="floatingNav">
+  <a href="#kpiSection">핵심 지표</a>
+  <a href="#todoSection">오늘 할 일</a>
+  <a href="#funnelSection">퍼널</a>
+  <a href="#trendSection">트렌드</a>
+  <a href="#slaSection">SLA</a>
+  <a href="#detailSection">건별 상세</a>
+  <a href="#cardCoCommSection">카드사 커뮤니케이션</a>
+</nav>
+
 <!-- ── MODALS ── -->
 <div class="modal-overlay" id="updateModal" onclick="if(event.target===this)closeUpdateModal()">
   <div class="modal">
@@ -2533,6 +2583,24 @@ document.addEventListener('keydown', function(e) {
   <div class="modal" style="max-width:560px;max-height:80vh;overflow-y:auto">
     <h3>변경 이력</h3>
     <div style="font-size:12px;color:var(--text)">
+      <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.4</strong> <span style="color:var(--text-muted)">2026-03-16</span>
+        <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
+          <li><strong>[데이터]</strong> 총 신청 건수 정합성 — filterInfo에 신청 기준/전체 건수 병기</li>
+          <li><strong>[데이터]</strong> CRM 최근 소통 HTML 엔티티(&amp;gt;) 및 마크다운 서식 정제</li>
+          <li><strong>[기능]</strong> 건별 상세 법인명 검색 기능 추가</li>
+          <li><strong>[기능]</strong> D+180 이상 장기 미처리 건 "종결 검토" 분류 + 툴팁 안내</li>
+          <li><strong>[기능]</strong> 플로팅 네비게이션 (섹션 앵커 바) 추가</li>
+          <li><strong>[기능]</strong> 메일 복사 버튼 분리 (제목만/본문만/전체)</li>
+          <li><strong>[메일]</strong> 카드사 메일 수신자명 인사 포함 ("안녕하세요 {담당자명}님")</li>
+          <li><strong>[메일]</strong> D+0 경과일 분기 처리 (부자연스러운 "0일 경과" 제거)</li>
+          <li><strong>[메일]</strong> 경과일별 메일 톤 분기 (D+3 안내 / D+7 리마인드 / D+14 최종)</li>
+          <li><strong>[메일]</strong> 자동발송/조건부 배지 툴팁 설명 추가</li>
+          <li><strong>[UX]</strong> 복수 담당자(AM) 필터 개별 분리 — 콤마 구분값 개별 검색 지원</li>
+          <li><strong>[UX]</strong> 진행중 "미종결 건" 정의 툴팁 추가</li>
+          <li><strong>[UX]</strong> 비활성 메일 링크 시각적 구분 (회색 처리)</li>
+          <li><strong>[UX]</strong> SLA "평균 실적" 명시 툴팁 추가</li>
+        </ul>
+      </div>
       <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.3</strong> <span style="color:var(--text-muted)">2026-03-16</span>
         <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
           <li><strong>[버그]</strong> 보증금/특별심사 상태 색상 덮어쓰기 수정 — 한도0원 하위 5개 분기 색상이 모두 빨간색이던 문제</li>

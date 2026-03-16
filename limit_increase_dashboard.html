@@ -468,7 +468,7 @@
 
 <header>
   <div class="header-left">
-    <h1>한도상향 / 카드사추가 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V2.3</span></h1>
+    <h1>한도상향 / 카드사추가 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V2.4</span></h1>
     <p>mart_limit_application.application_status | 업데이트: 2026-03-16 | <span id="freshness" style="font-weight:500"></span></p>
   </div>
   <div class="header-right">
@@ -653,6 +653,7 @@
       <button class="tab-btn detail-status" onclick="filterDetailStatus('rejected', this)">부결</button>
       <button class="tab-btn detail-status" onclick="filterDetailStatus('approved', this)">완료</button>
       <button class="tab-btn detail-status" onclick="filterDetailStatus('not_submitted', this)">승인미제출</button>
+      <input type="text" id="detailSearchInput" placeholder="법인명 검색..." oninput="filterDetailBySearch(this.value)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;width:180px">
     </div>
     <div class="card">
       <div class="table-scroll">
@@ -743,7 +744,15 @@ function populateDropdowns() {
   // AM dropdown
   const amSel = document.getElementById('filterAM');
   const AM_EXCLUDE = ['옥래협'];
-  const ams = [...new Set(RECORD_DATA.map(r => r.am).filter(a => a && !AM_EXCLUDE.includes(a)))].sort();
+  const amSet = new Set();
+  RECORD_DATA.forEach(function(r) {
+    if (!r.am) return;
+    r.am.split(',').forEach(function(a) {
+      a = a.trim();
+      if (a && !AM_EXCLUDE.includes(a)) amSet.add(a);
+    });
+  });
+  const ams = [...amSet].sort();
   ams.forEach(a => amSel.add(new Option(a, a)));
   // Card company dropdown<!-- filterCardCo__POPULATE__PATCHED -->
   const ccSel = document.getElementById('filterCardCo');
@@ -767,7 +776,10 @@ function getFilteredRecords() {
   const am = getSelectedAM();
   const cc = getSelectedCardCo__PATCHED();
   let recs = RECORD_DATA.filter(r => r.d >= start && r.d <= end);
-  if (am) recs = recs.filter(r => r.am === am);
+  if (am) recs = recs.filter(function(r) {
+    if (!r.am) return false;
+    return r.am.split(',').some(function(a) { return a.trim() === am; });
+  });
   if (cc) recs = recs.filter(r => r.cc === cc);
   return recs; // getFilteredRecords__CC__PATCHED
 }
@@ -1824,7 +1836,7 @@ function buildMonthlyTable(data) {
 function aggregateCardCo(am) {
   const start = document.getElementById('filterStart').value;
   const end = document.getElementById('filterEnd').value;
-  const recs = RECORD_DATA.filter(r => r.am === am && r.d >= start && r.d <= end);
+  const recs = RECORD_DATA.filter(r => r.d >= start && r.d <= end && r.am && r.am.split(',').some(function(a){ return a.trim() === am; }));
   const map = {};
   recs.forEach(r => {
     const key = r.cc + '|' + (r.t === '상향' ? '한도상향' : '카드사 추가');
@@ -1957,7 +1969,10 @@ function buildDetailTable() {
   let rows = DETAIL_DATA.filter(r => {
     return r.init && r.init >= start && r.init <= end;
   });
-  if (am) rows = rows.filter(r => r.am === am);
+  if (am) rows = rows.filter(function(r) {
+    if (!r.am) return false;
+    return r.am.split(',').some(function(a) { return a.trim() === am; });
+  });
   if (cc) rows = rows.filter(r => r.card_co === cc);
   if (tf === '한도상향') rows = rows.filter(r => r.type === '한도상향');
   else if (tf === '카드사 추가') rows = rows.filter(r => r.type === '카드사 추가');
@@ -2029,7 +2044,7 @@ function buildDetailTable() {
       <td style="font-size:10px;color:${isDone ? 'var(--text-muted)' : 'var(--text)'}">${isDone ? (r.done ? '완료' : '부결') : esc(mail.action)}</td>
       <td class="num">${r.current ? r.current.toLocaleString() : '-'}</td>
       <td class="num">${r.requested ? r.requested.toLocaleString() : '-'}</td>
-      <td class="num ${r.approved > 0 ? 'success-text' : 'muted'}">${r.approved ? r.approved.toLocaleString() : '-'}</td>
+      <td class="num" style="${r.approved && r.requested ? (r.approved > r.requested ? 'color:var(--success);font-weight:700' : r.approved < r.requested ? 'color:var(--orange);font-weight:700' : 'color:var(--text-muted)') : r.approved > 0 ? 'color:var(--success)' : ''}">${r.approved ? (r.approved.toLocaleString() + (r.requested ? (r.approved > r.requested ? ' ▲' : r.approved < r.requested ? ' ▼' : ' =') : '')) : '-'}</td>
       <td>${r.init || '-'}</td>
       <td>${endDate}</td>
     </tr>`;
@@ -2054,10 +2069,37 @@ function filterDetailStatus(filter, btn) {
   buildDetailTable();
 }
 
+function filterDetailBySearch(query) {
+  query = query.toLowerCase().trim();
+  var rows = document.querySelectorAll('#detailTable tbody tr');
+  rows.forEach(function(row) {
+    var corpCell = row.querySelector('td:nth-child(2)');
+    var corp = corpCell ? corpCell.textContent.toLowerCase() : '';
+    row.style.display = (!query || corp.indexOf(query) >= 0) ? '' : 'none';
+  });
+}
+
 // ─── INSIGHTS ───
 function buildInsights(data, slaData) {
+  var insightsContainer = document.getElementById('insightsPanel');
+  if (data.length === 0) {
+    insightsContainer.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--text-muted)">데이터가 없습니다.</div>';
+    return;
+  }
   if (data.length < 2) {
-    document.getElementById('insightsPanel').innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--text-muted)">2개월 이상 선택 시 인사이트가 표시됩니다.</div>';
+    var _m = data[0];
+    var _pct = function(a, b) { return b > 0 ? (a / b * 100).toFixed(1) : '0.0'; };
+    var _html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
+    _html += '<div class="card" style="padding:16px"><div style="font-size:11px;font-weight:600;color:var(--primary);margin-bottom:6px">이번 달 요약</div>';
+    _html += '<h4 style="font-size:14px;color:var(--text-strong);margin-bottom:8px">' + _m.label + ' 현황</h4>';
+    _html += '<p style="font-size:13px;color:var(--text);line-height:1.7">총 신청 ' + (_m.total || 0) + '건, 승인 ' + (_m.f4 || 0) + '건 (승인율 ' + _pct(_m.f4 || 0, _m.total || 0) + '%)</p>';
+    _html += '<p style="font-size:13px;color:var(--text);line-height:1.7">부결 ' + ((_m.gowid_rejected || 0) + (_m.card_co_rejected || 0)) + '건 (고위드 ' + (_m.gowid_rejected || 0) + ', 카드사 ' + (_m.card_co_rejected || 0) + ')</p>';
+    _html += '</div>';
+    _html += '<div class="card" style="padding:16px"><div style="font-size:11px;font-weight:600;color:var(--info);margin-bottom:6px">참고</div>';
+    _html += '<h4 style="font-size:14px;color:var(--text-strong);margin-bottom:8px">비교 분석을 보려면</h4>';
+    _html += '<p style="font-size:13px;color:var(--text);line-height:1.7">기간을 2개월 이상 확장하시면 MoM 비교, 병목 분석 등 상세 인사이트를 확인할 수 있습니다.</p>';
+    _html += '</div></div>';
+    insightsContainer.innerHTML = _html;
     return;
   }
 
@@ -2445,7 +2487,10 @@ function exportDetailCSV() {
   let rows = DETAIL_DATA.filter(r => {
     return r.init && r.init >= start && r.init <= end;
   });
-  if (am) rows = rows.filter(r => r.am === am);
+  if (am) rows = rows.filter(function(r) {
+    if (!r.am) return false;
+    return r.am.split(',').some(function(a) { return a.trim() === am; });
+  });
   if (cc) rows = rows.filter(r => r.card_co === cc);
   if (tf === '한도상향') rows = rows.filter(r => r.type === '한도상향');
   else if (tf === '카드사 추가') rows = rows.filter(r => r.type === '카드사 추가');
@@ -2577,7 +2622,7 @@ function buildWeeklyChart() {
   var rows = DETAIL_DATA.filter(function(r) {
     return r.init && r.init >= start && r.init <= end;
   });
-  if (am) rows = rows.filter(function(r){return r.am === am});
+  if (am) rows = rows.filter(function(r){if(!r.am)return false;return r.am.split(',').some(function(a){return a.trim()===am})});
   if (cc) rows = rows.filter(function(r){return r.card_co === cc});
   var weekMap = {};
   rows.forEach(function(r) {
@@ -2592,7 +2637,7 @@ function buildWeeklyChart() {
     if (r.reject || r.card_reject) weekMap[wk].rejected++;
   });
   var weeks = Object.keys(weekMap).sort().slice(-12);
-  var labels = weeks.map(function(w){return w.slice(5)});
+  var labels = weeks.map(function(w, i){return (i + 1) + '주차'});
   var c = getChartColors();
   chartInstances['weekly'] = new Chart(ctx.getContext('2d'), {
     type: 'bar',
@@ -3085,6 +3130,19 @@ document.addEventListener('keydown', e => {
     <h3 style="margin-bottom:16px">변경 이력</h3>
     <div style="font-size:13px;line-height:1.8">
       <div style="margin-bottom:16px">
+        <div style="font-weight:700;color:#10b981;font-size:14px">V2.4 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">2026-03-16</span></div>
+        <ul style="margin:6px 0 0 18px;color:var(--text)">
+          <li><strong>[데이터]</strong> 카드사 커뮤니케이션 현황 0건 수정 — 날짜 필터 무관하게 전체 대상 건 표시</li>
+          <li><strong>[기능]</strong> 건별 상세 법인명 검색 기능 추가</li>
+          <li><strong>[기능]</strong> 인사이트 1개월 기본 요약 추가 (기존: 2개월 이상만 표시)</li>
+          <li><strong>[메일]</strong> 카드사 메일 수신자명 인사 포함 + 승인확인 메일 제목에 법인명 추가</li>
+          <li><strong>[메일]</strong> D+0 경과일 분기 (당일 접수 건 자연스러운 문구)</li>
+          <li><strong>[UX]</strong> 복수 담당자(AM) 필터 개별 분리 — 콤마 구분값 개별 검색 지원</li>
+          <li><strong>[UX]</strong> 승인한도 vs 요청한도 시각 구분 (▲상향/=동일/▼하향)</li>
+          <li><strong>[UX]</strong> 주간 트렌드 X축 "N주차" 라벨로 변경</li>
+        </ul>
+      </div>
+      <div style="margin-bottom:16px">
         <div style="font-weight:700;color:#ef4444;font-size:14px">V2.3 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">2026-03-16</span></div>
         <ul style="margin:6px 0 0 18px;color:var(--text)">
           <li><strong>[버그]</strong> 월별 추이 독립 필터: 데이터 없는 월 버튼이 생성되어 비교 불가하던 문제 수정</li>
@@ -3165,27 +3223,27 @@ if (window.location.search.includes('embedded=1')) {
 var COMM_MAIL_TEMPLATES = {
   '심사 현황 확인': {
     subject: '[고위드] {corp} 한도심사 진행 현황 확인 요청',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도심사 진행 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 신청 유형: {type}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n심사 진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    body: '안녕하세요 {to}님, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도심사 진행 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 신청 유형: {type}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n심사 진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
     to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
   },
   '카드사 접수 확인': {
     subject: '[고위드] {corp} 카드사 접수 확인 요청',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 신청서를 제출하였으나 카드사 접수가 확인되지 않아 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 신청 유형: {type}\n- 제출일: {date}\n- 경과일: D+{elapsed}\n\n접수 진행 상황 확인 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    body: '안녕하세요 {to}님, 고위드 카드사업운영부입니다.\n\n아래 법인의 신청서를 제출하였으나 카드사 접수가 확인되지 않아 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 신청 유형: {type}\n- 제출일: {date}\n- 경과일: D+{elapsed}\n\n접수 진행 상황 확인 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
     to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
   },
   '추가서류 제출': {
     subject: '[고위드] {corp} 추가 서류 송부',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 추가 서류를 송부드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 제출 서류: [재무제표 / 부가세 증명원 / 기타]\n\n확인 후 심사 진행 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    body: '안녕하세요 {to}님, 고위드 카드사업운영부입니다.\n\n아래 법인의 추가 서류를 송부드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 제출 서류: [재무제표 / 부가세 증명원 / 기타]\n\n확인 후 심사 진행 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
     to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
   },
   '전문 재발송 요청': {
     subject: '[고위드] {corp} 전문 재발송 요청',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 기존 심사건 취소 후 전문 재발송을 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 변경 한도: [금액 입력]\n- 사유: [사유 입력]\n\n기존 심사건 취소 처리 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    body: '안녕하세요 {to}님, 고위드 카드사업운영부입니다.\n\n아래 법인의 기존 심사건 취소 후 전문 재발송을 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 변경 한도: [금액 입력]\n- 사유: [사유 입력]\n\n기존 심사건 취소 처리 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
     to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
   },
   '승인 후 처리 확인': {
-    subject: '[고위드] {corp} 승인 후 처리 현황 확인',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도 승인 후 후속 처리 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 승인일: {date}\n- 경과일: D+{elapsed}\n\n진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    subject: '[고위드] 승인 후 처리 현황 확인 — {corp}',
+    body: '안녕하세요 {to}님, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도 승인 후 후속 처리 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 승인일: {date}\n- 경과일: D+{elapsed}\n\n진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
     to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
   }
 };
@@ -3229,11 +3287,9 @@ function buildCardCoComm() {
   var cc = getSelectedCardCo__PATCHED();
   var today = new Date();
 
-  // Filter DETAIL_DATA (same logic as buildDetailTable)
-  var rows = DETAIL_DATA.filter(function(r) {
-    return r.init && r.init >= start && r.init <= end;
-  });
-  if (am) rows = rows.filter(function(r) { return r.am === am; });
+  // 카드사 커뮤니케이션은 날짜 필터와 무관하게 전체 대상 건 표시
+  var rows = DETAIL_DATA.slice();
+  if (am) rows = rows.filter(function(r) { if(!r.am)return false; return r.am.split(',').some(function(a){return a.trim()===am}); });
   if (cc) rows = rows.filter(function(r) { return r.card_co === cc; });
 
   // Only records that need card company comm: not fully rejected by gowid, not canceled
@@ -3368,10 +3424,17 @@ function openCommMailDraft(corpName, commType) {
             .replace(/\{brn\}/g, brn)
             .replace(/\{type\}/g, typeStr)
             .replace(/\{date\}/g, initDate)
-            .replace(/\{elapsed\}/g, elapsed);
+            .replace(/\{elapsed\}/g, elapsed)
+            .replace(/\{to\}/g, toName);
   }
   var subject = fillTpl(tmpl.subject);
   var body = fillTpl(tmpl.body);
+
+  // D+0: 당일 접수 건은 자연스러운 문구로 전환
+  if (elapsed <= 0) {
+    body = body.replace(/D\+0/g, '오늘');
+    body = body.replace(/경과일: 오늘/g, '접수일: 오늘 (' + initDate + ')');
+  }
 
   var modal = document.getElementById('commMailModal');
   var content = document.getElementById('commMailContent');
