@@ -1479,21 +1479,21 @@ function buildDailyTrendChart() {
           data: movingAverage(dailyData.map(d => d.submitRate), 7),
           borderColor: '#3b82f6',
           backgroundColor: 'rgba(59,130,246,0.06)',
-          fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, order: 1,
+          fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, order: 1, spanGaps: true,
         },
         {
           label: '승인율 (7일 이동평균)',
           data: movingAverage(dailyData.map(d => d.approvalRate), 7),
           borderColor: '#34d399',
           backgroundColor: 'rgba(52,211,153,0.06)',
-          fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, order: 1,
+          fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, order: 1, spanGaps: true,
         },
         {
           label: '부결율 (7일 이동평균)',
           data: movingAverage(dailyData.map(d => d.rejectRate), 7),
           borderColor: '#f06060',
           backgroundColor: 'rgba(240,96,96,0.06)',
-          fill: true, tension: 0.3, borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], order: 2,
+          fill: true, tension: 0.3, borderWidth: 1.5, pointRadius: 0, borderDash: [4, 2], order: 2, spanGaps: true,
         },
       ],
     },
@@ -1524,7 +1524,7 @@ function buildDailyTrendChart() {
 function movingAverage(arr, window) {
   return arr.map((_, i) => {
     const start = Math.max(0, i - window + 1);
-    const slice = arr.slice(start, i + 1).filter(v => v != null && v > 0);
+    const slice = arr.slice(start, i + 1).filter(v => v != null);
     if (slice.length === 0) return null;
     return Math.round(slice.reduce((a, b) => a + b, 0) / slice.length * 10) / 10;
   });
