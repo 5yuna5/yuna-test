@@ -1496,7 +1496,6 @@ function openCorpDetail(corpName) {
     else if (record.dc) { currentStep = '보증금 확인 완료'; nextAction = '보증금 기반 한도 재산출 대기'; statusColor = 'var(--success)'; }
     else if (record.da) { currentStep = '보증금 신청'; nextAction = '보증금 입금 확인 대기'; statusColor = 'var(--warning)'; }
     else { currentStep = '한도 0원 산출'; nextAction = '보증금 안내 또는 특별심사 요청'; statusColor = 'var(--accent)'; }
-    statusColor = 'var(--accent)';
     templateInfo = '보증금/특별심사 안내'; templateGrade = '🔴필수승인';
   }
   else if (record.lnz) {
@@ -1930,11 +1929,12 @@ function buildDetailTable(records) {
 
   function statusBadgeClass(status) {
     switch(status) {
-      case '\uC644\uB8CC': return 'completed';
-      case '\uC811\uC218': return 'new';
-      case '\uC2B9\uC778\xB7\uBBF8\uAC00\uC785': case '\uAC00\uC785\uC644\uB8CC\xB7\uD55C\uB3C4\uBBF8\uC2DC\uC791': case '\uC720\uD6A8\uD55C\uB3C4\xB7\uBBF8\uBC1C\uAE09': return 'pending';
-      case '\uD55C\uB3C40\uC6D0': return 'rejected';
-      case '\uBC1C\uAE09\uC644\uB8CC\xB7\uBBF8\uC0AC\uC6A9': case '\uD55C\uB3C4\uC0B0\uCD9C': return 'progress';
+      case '완료': return 'completed';
+      case '접수': return 'new';
+      case '승인·미가입': case '가입완료·한도미시작': case '유효한도·미발급': return 'pending';
+      case '한도0원': case '보증금 신청': case '특별심사': return 'rejected';
+      case '보증금 확인': case '특별심사 승인': return 'completed';
+      case '발급완료·미사용': case '한도산출': return 'progress';
       default: return 'progress';
     }
   }
