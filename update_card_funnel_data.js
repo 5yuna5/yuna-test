@@ -90,7 +90,11 @@ async function fetchRecordData() {
       SELECT c.brn_key,
         MIN(IF(ci.createdAt >= c.latest_application_created_at, ci.createdAt, NULL)) AS ci_created,
         MIN(IF(ci.appliedAt >= c.latest_application_created_at, ci.appliedAt, NULL)) AS ci_applied,
-        MIN(IF(ci.issuedAt >= c.latest_application_created_at, ci.issuedAt, NULL)) AS ci_issued
+        MIN(IF(ci.issuedAt >= c.latest_application_created_at, ci.issuedAt, NULL)) AS ci_issued,
+        ARRAY_AGG(
+          IF(ci.issuedAt >= c.latest_application_created_at AND ci.cardCompany IS NOT NULL, ci.cardCompany, NULL)
+          IGNORE NULLS ORDER BY ci.issuedAt ASC LIMIT 1
+        )[SAFE_OFFSET(0)] AS card_co
       FROM cohort c LEFT JOIN corp_ods o ON c.brn_key = o.brn_key
       LEFT JOIN \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci ON ci.idxCorp = o.corp_idx
       GROUP BY c.brn_key
@@ -145,6 +149,13 @@ async function fetchRecordData() {
         CASE WHEN cd.first_spend IS NOT NULL THEN 1 ELSE 0 END AS fs,
         -- 발급일
         FORMAT_DATE('%Y-%m-%d', DATE(ci.ci_issued)) AS issued_date,
+        -- 카드사
+        CASE ci.card_co
+          WHEN 'SHINHAN' THEN '신한카드'
+          WHEN 'BC' THEN '비씨카드'
+          WHEN 'LOTTE' THEN '롯데카드'
+          ELSE ci.card_co
+        END AS card_company,
         -- SLA
         CASE WHEN c.latest_approved_at IS NOT NULL
           THEN GREATEST(DATETIME_DIFF(c.latest_approved_at, c.latest_application_created_at, DAY), 0) END AS d1,
@@ -188,6 +199,12 @@ async function fetchRecordData() {
         CASE WHEN ci_agg.ci_issued IS NOT NULL THEN 1 ELSE 0 END AS cd,
         CASE WHEN dim.first_card_spend_at IS NOT NULL THEN 1 ELSE 0 END AS fs,
         FORMAT_DATE('%Y-%m-%d', DATE(ci_agg.ci_issued)) AS issued_date,
+        CASE ci_agg.card_co
+          WHEN 'SHINHAN' THEN '신한카드'
+          WHEN 'BC' THEN '비씨카드'
+          WHEN 'LOTTE' THEN '롯데카드'
+          ELSE ci_agg.card_co
+        END AS card_company,
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
         CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
@@ -199,7 +216,8 @@ async function fetchRecordData() {
         SELECT ci.idxCorp,
           MIN(ci.createdAt) AS ci_created,
           MIN(ci.appliedAt) AS ci_applied,
-          MIN(ci.issuedAt) AS ci_issued
+          MIN(ci.issuedAt) AS ci_issued,
+          ARRAY_AGG(ci.cardCompany IGNORE NULLS ORDER BY ci.issuedAt ASC LIMIT 1)[SAFE_OFFSET(0)] AS card_co
         FROM \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci
         WHERE ci.issuedAt IS NOT NULL
         GROUP BY ci.idxCorp
@@ -243,6 +261,7 @@ async function fetchRecordData() {
     dt: r.dt != null ? Number(r.dt) : null,
     d5: r.d5 != null ? Number(r.d5) : null,
     id: r.issued_date || null,
+    cc: r.card_company || '',
     na: Number(r.no_app || 0),
   }));
 }
