@@ -10,11 +10,22 @@
 const { BigQuery } = require('@google-cloud/bigquery');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 const HTML_FILE = path.join(__dirname, 'card_funnel_dashboard.html');
 const KEYFILE = path.join(process.env.HOME, '.claude/credentials/gowid-prd-bigquery-key.json');
 const PROJECT = 'gowid-prd';
 const LOCATION = 'asia-northeast3';
+
+// Slack 토큰 (CRM 봇 .env에서 로드)
+const SLACK_USER_TOKEN = (() => {
+  try {
+    const envPath = path.join(__dirname, 'pm/context/card/operations/crm-slack-bot/.env');
+    const env = fs.readFileSync(envPath, 'utf8');
+    const m = env.match(/SLACK_USER_TOKEN=(.+)/);
+    return m ? m[1].trim() : '';
+  } catch { return ''; }
+})();
 
 const bq = new BigQuery({ projectId: PROJECT, keyFilename: KEYFILE, location: LOCATION });
 
@@ -22,6 +33,70 @@ async function query(sql) {
   const [job] = await bq.createQueryJob({ query: sql, location: LOCATION });
   const [rows] = await job.getQueryResults();
   return rows;
+}
+
+// ─── Slack 소통 이력 (search.messages API) ───
+function slackGet(url, token) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { Authorization: `Bearer ${token}` } }, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+async function fetchSlackComm(companyNames) {
+  if (!SLACK_USER_TOKEN) {
+    console.log('  ⚠ Slack 토큰 없음 — 소통 이력 생략');
+    return new Map();
+  }
+  console.log('  [Slack] search.messages로 회사별 소통 이력 조회 중...');
+
+  const commMap = new Map();
+  let searched = 0;
+
+  for (const name of companyNames) {
+    if (!name || name.length < 2) continue;
+    const searchName = name.replace(/\(주\)|\(주 \)|주식회사 |주식회사|㈜/g, '').trim();
+    if (searchName.length < 3) continue;
+
+    try {
+      const q = encodeURIComponent(`"${searchName}"`);
+      const resp = await slackGet(
+        `https://slack.com/api/search.messages?query=${q}&count=1&sort=timestamp&sort_dir=desc`,
+        SLACK_USER_TOKEN
+      );
+      searched++;
+      if (resp.ok && resp.messages && resp.messages.matches && resp.messages.matches.length > 0) {
+        const m = resp.messages.matches[0];
+        const date = new Date(Number(m.ts) * 1000);
+        const dateStr = `${String(date.getMonth()+1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')}`;
+        let txt = (m.text || '').replace(/\n/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+        if (txt.length > 100) {
+          const idx = txt.indexOf(searchName);
+          if (idx >= 0) {
+            const start = Math.max(0, idx - 20);
+            txt = txt.substring(start, start + 100);
+          } else {
+            txt = txt.substring(0, 100);
+          }
+        }
+        commMap.set(name, dateStr + ' ' + txt.trim());
+      }
+      if (searched % 20 === 0) {
+        console.log(`  [Slack] ${searched}건 검색, ${commMap.size}건 매칭...`);
+        await new Promise(r => setTimeout(r, 1000));
+      } else {
+        await new Promise(r => setTimeout(r, 50));
+      }
+    } catch (e) {
+      // 에러 시 해당 회사 건너뜀
+    }
+  }
+
+  console.log(`  [Slack] 총 ${searched}건 검색, ${commMap.size}건 매칭 완료`);
+  return commMap;
 }
 
 // ─── RECORD_DATA: 건별 레코드 (퍼널 + SLA + AM) ───
@@ -105,23 +180,6 @@ async function fetchRecordData() {
       FROM cohort c LEFT JOIN \`gowid-prd.dw_dimension.corporation\` d ON CAST(d.corp_id AS STRING) = c.brn_key
       GROUP BY c.brn_key
     ),
-    -- CRM 최근 소통 이력 (90일 이내, BRN 기준 최신 1건)
-    crm_latest AS (
-      SELECT o.brn_key,
-        FORMAT_DATETIME('%m/%d', MAX(c.contacted_at)) AS crm_date,
-        ARRAY_AGG(
-          STRUCT(
-            LEFT(REGEXP_REPLACE(c.content, r'\\n', ' '), 80) AS txt,
-            c.source_feature AS src
-          )
-          ORDER BY c.contacted_at DESC LIMIT 1
-        )[OFFSET(0)].*
-      FROM \`gowid-prd.ods_stream_crm.contact\` c
-      JOIN corp_ods o ON c.idx_corp_id = o.corp_idx
-      WHERE c.is_deleted = 0
-        AND c.contacted_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
-      GROUP BY o.brn_key
-    ),
     -- AM 매핑: brn_key → corp_id → assigned_am
     am_map AS (
       SELECT CAST(d.corp_id AS STRING) AS brn_key, d.assigned_am
@@ -186,10 +244,8 @@ async function fetchRecordData() {
           THEN GREATEST(DATETIME_DIFF(ci.ci_issued, c.latest_application_created_at, DAY), 0) END AS dt,
         CASE WHEN cd.first_spend IS NOT NULL AND ci.ci_issued IS NOT NULL
           THEN GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, DAY), 0) END AS d5,
-        -- CRM 최근 소통
-        crm.crm_date AS crm_date,
-        crm.txt AS crm_txt,
-        crm.src AS crm_src
+        -- 보증금/특별심사 구분
+        IFNULL(src.is_special, 0) AS is_special
       FROM cohort c
       LEFT JOIN corp_map_after_app m USING (brn_key)
       LEFT JOIN limit_flow_after_app lf USING (brn_key)
@@ -199,7 +255,7 @@ async function fetchRecordData() {
       LEFT JOIN am_map am USING (brn_key)
       LEFT JOIN corp_name_map cn USING (brn_key)
       LEFT JOIN app_name_map acn USING (brn_key)
-      LEFT JOIN crm_latest crm USING (brn_key)
+      LEFT JOIN special_review_check src USING (brn_key)
     ),
     -- CardApplication 없이 카드 발급된 법인 (다른 온보딩 경로)
     -- Metabase #4299 로직: Corp.createdAt(회원가입일) 기준 코호트, CardApplication 없는 법인만
