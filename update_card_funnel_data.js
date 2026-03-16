@@ -105,6 +105,23 @@ async function fetchRecordData() {
       FROM cohort c LEFT JOIN \`gowid-prd.dw_dimension.corporation\` d ON CAST(d.corp_id AS STRING) = c.brn_key
       GROUP BY c.brn_key
     ),
+    -- CRM 최근 소통 이력 (90일 이내, BRN 기준 최신 1건)
+    crm_latest AS (
+      SELECT o.brn_key,
+        FORMAT_DATETIME('%m/%d', MAX(c.contacted_at)) AS crm_date,
+        ARRAY_AGG(
+          STRUCT(
+            LEFT(REGEXP_REPLACE(c.content, r'\\n', ' '), 80) AS txt,
+            c.source_feature AS src
+          )
+          ORDER BY c.contacted_at DESC LIMIT 1
+        )[OFFSET(0)].*
+      FROM \`gowid-prd.ods_stream_crm.contact\` c
+      JOIN corp_ods o ON c.idx_corp_id = o.corp_idx
+      WHERE c.is_deleted = 0
+        AND c.contacted_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
+      GROUP BY o.brn_key
+    ),
     -- AM 매핑: brn_key → corp_id → assigned_am
     am_map AS (
       SELECT CAST(d.corp_id AS STRING) AS brn_key, d.assigned_am
@@ -168,7 +185,11 @@ async function fetchRecordData() {
         CASE WHEN ci.ci_issued IS NOT NULL
           THEN GREATEST(DATETIME_DIFF(ci.ci_issued, c.latest_application_created_at, DAY), 0) END AS dt,
         CASE WHEN cd.first_spend IS NOT NULL AND ci.ci_issued IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, DAY), 0) END AS d5
+          THEN GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, DAY), 0) END AS d5,
+        -- CRM 최근 소통
+        crm.crm_date AS crm_date,
+        crm.txt AS crm_txt,
+        crm.src AS crm_src
       FROM cohort c
       LEFT JOIN corp_map_after_app m USING (brn_key)
       LEFT JOIN limit_flow_after_app lf USING (brn_key)
@@ -178,6 +199,7 @@ async function fetchRecordData() {
       LEFT JOIN am_map am USING (brn_key)
       LEFT JOIN corp_name_map cn USING (brn_key)
       LEFT JOIN app_name_map acn USING (brn_key)
+      LEFT JOIN crm_latest crm USING (brn_key)
     ),
     -- CardApplication 없이 카드 발급된 법인 (다른 온보딩 경로)
     -- Metabase #4299 로직: Corp.createdAt(회원가입일) 기준 코호트, CardApplication 없는 법인만
@@ -208,9 +230,14 @@ async function fetchRecordData() {
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
         CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
+        -- CRM 최근 소통
+        crm2.crm_date AS crm_date,
+        crm2.txt AS crm_txt,
+        crm2.src AS crm_src,
         1 AS no_app
       FROM \`gowid-prd.ods_stream_gowid.Corp\` c
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` dim ON dim.corp_id = c.idx
+      LEFT JOIN crm_latest crm2 ON crm2.brn_key = REPLACE(c.resCompanyIdentityNo, '-', '')
       -- 카드 발급 정보 집계
       LEFT JOIN (
         SELECT ci.idxCorp,
@@ -263,6 +290,7 @@ async function fetchRecordData() {
     id: r.issued_date || null,
     cc: r.card_company || '',
     na: Number(r.no_app || 0),
+    crm: r.crm_date ? (r.crm_date + ' ' + (r.crm_txt || '').trim()) : '',
   }));
 }
 
