@@ -1452,9 +1452,9 @@ function buildDailyTrendChart() {
       date: dt,
       label: dt.slice(5),
       total: o.total,
-      submitRate: o.total > 0 ? Math.round(o.f2 / o.total * 1000) / 10 : null,
-      approvalRate: o.total > 0 ? Math.round(o.f4 / o.total * 1000) / 10 : null,
-      rejectRate: o.total > 0 ? Math.round(o.rj / o.total * 1000) / 10 : null,
+      submitRate: o.total > 0 ? Math.round(o.f2 / o.total * 1000) / 10 : 0,
+      approvalRate: o.total > 0 ? Math.round(o.f4 / o.total * 1000) / 10 : 0,
+      rejectRate: o.total > 0 ? Math.round(o.rj / o.total * 1000) / 10 : 0,
     };
   });
 
