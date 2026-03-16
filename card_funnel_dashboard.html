@@ -548,8 +548,7 @@ function setDateMode(mode, btn) {
 
 function getRecordDate(r) {
   if (dateMode === 'issued') return r.id;
-  if (r.na) return null; // CardApplication 없는 법인은 신청일 모드에서 제외
-  return r.d;
+  return r.d; // na=1 법인은 d=Corp.createdAt(회원가입일) 기준
 }
 
 function resetDateRange() {
