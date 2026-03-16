@@ -3166,34 +3166,32 @@ var _commCurrentTab = '';
 
 function _commGetIssue(r) {
   var elapsed = r.elapsed || 0;
-  var st = r.status || '';
-  // Determine funnel step from status
-  var f1 = r.gowid_st && r.gowid_st.indexOf('승인') >= 0 && !r.reject ? 1 : 0;
-  var f2 = r.submit ? 1 : 0;
-  var f3 = r.card_st && (r.card_st.indexOf('심사') >= 0 || r.card_st.indexOf('접수') >= 0 || r.done) ? 1 : 0;
-  // More reliable: use status string
-  if (st.indexOf('카드사 심사') >= 0) { f1=1; f2=1; f3=1; }
-  else if (st.indexOf('신청서 제출') >= 0) { f1=1; f2=1; f3=0; }
-  else if (st.indexOf('신청서 작성') >= 0 || st.indexOf('전자서명') >= 0) { f1=1; f2=0; f3=0; }
+  var f2 = r.f2 ? 1 : 0;
+  var f3 = r.f3 ? 1 : 0;
+  var f4 = r.f4 ? 1 : 0;
+  // Skip: not yet submitted to card company
+  if (!f2) return { commType: null };
+  // Skip: already completed
+  if (r.done) return { commType: null };
+  // Skip: rejected
+  if (r.reject || r.card_reject) return { commType: null };
   var commType = '';
   var issueSummary = '';
-  if (f3 && !r.done) {
+  if (f4 && !r.done) {
+    commType = '승인 후 처리 확인';
+    issueSummary = '승인 완료 — 후속 처리 대기';
+  } else if (f3 && !f4) {
     commType = '심사 현황 확인';
     if (elapsed >= 14) issueSummary = '심사 장기 지연 (D+' + elapsed + ')';
     else if (elapsed >= 7) issueSummary = '심사 진행중 — 현황 확인 필요';
     else issueSummary = '심사 진행중';
-  } else if (f2 && !f3 && !r.done) {
+  } else if (f2 && !f3) {
     commType = '카드사 접수 확인';
     if (elapsed >= 7) issueSummary = '카드사 미접수 — 접수 확인 필요';
     else issueSummary = '카드사 접수 대기';
-  } else if (f1 && !f2 && !r.done) {
-    commType = '신청서 제출 독촉';
-    issueSummary = '신청서 미제출';
-  } else if (r.done && !r.reject && !r.card_reject) {
-    commType = '승인 후 처리 확인';
-    issueSummary = '승인 후 처리 확인 필요';
   }
-  return { commType: commType, issueSummary: issueSummary, f1: f1, f2: f2, f3: f3 };
+  if (!commType) return { commType: null };
+  return { commType: commType, issueSummary: issueSummary };
 }
 
 function buildCardCoComm() {
@@ -3218,8 +3216,6 @@ function buildCardCoComm() {
     if (r.card_reject) return; // card co rejected — skip
     var info = _commGetIssue(r);
     if (!info.commType) return;
-    // Skip if f1=1 but f2=0 (신청서 미제출 — customer side, not card co comm)
-    if (info.commType === '신청서 제출 독촉') return;
     var elapsed = r.elapsed || 0;
     var urgency = elapsed >= 14 ? 'urgent' : elapsed >= 7 ? 'warning' : 'normal';
     var urgEmoji = elapsed >= 14 ? '🔴' : elapsed >= 7 ? '🟡' : '🟢';

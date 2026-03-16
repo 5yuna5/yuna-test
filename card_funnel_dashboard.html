@@ -2060,29 +2060,21 @@ function filterDetail(type, btn) {
 
 // ─── CARD CO COMM MAIL TEMPLATES ───
 var COMM_MAIL_TEMPLATES = {
-  '입회 심사 현황 확인': {
-    subject: '[고위드] {corp} 신규입회 심사 현황 확인 요청',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 신규입회 심사 진행 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n심사 진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
-  },
-  '한도 0원 조치 확인': {
-    subject: '[고위드] {corp} 한도산출 0원 — 보증금/특별심사 확인',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도산출 결과가 0원으로 확인되어, 보증금 또는 특별심사 진행 가능 여부 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n대응 방안 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
+  '카드 발급 현황 확인': {
+    subject: '[고위드] {corp} 카드 발급 현황 확인 요청',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 카드 발급 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n발급 진행 상황 확인 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
   },
   '카드 발급 진행 확인': {
-    subject: '[고위드] {corp} 카드 발급 진행 현황 확인',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도 승인 후 카드 발급이 진행되지 않아 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n카드 발급 진행 상황 확인 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
+    subject: '[고위드] {corp} 카드 발급 진행 확인 요청',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 카드 발급신청 후 {elapsed}일이 경과하여 진행 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n발급 진행 상황 및 예상 완료일 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
   },
-  '한도심사 지연 확인': {
-    subject: '[고위드] {corp} 한도심사 지연 현황 확인',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도심사가 {elapsed}일 경과하여 진행 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n심사 진행 현황 및 예상 완료일 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
+  '카드 발급 지연 확인': {
+    subject: '[고위드] {corp} 카드 발급 지연 — 현황 확인 요청',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 카드 발급신청 후 {elapsed}일이 경과하여, 발급 지연 사유 및 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n지연 사유 및 예상 발급일 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
   },
   '추가서류 제출': {
     subject: '[고위드] {corp} 추가 서류 송부',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 추가 서류를 송부드립니다.\n\n- 법인명: {corp}\n- 제출 서류: [재무제표 / 부가세 증명원 / 기타]\n\n확인 후 심사 진행 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
-  },
-  '전문 재발송 요청': {
-    subject: '[고위드] {corp} 전문 재발송 요청',
-    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 기존 심사건 취소 후 전문 재발송을 요청드립니다.\n\n- 법인명: {corp}\n- 변경 한도: [금액 입력]\n- 사유: [사유 입력]\n\n기존 심사건 취소 처리 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 추가 서류를 송부드립니다.\n\n- 법인명: {corp}\n- 제출 서류: [재무제표 / 부가세 증명원 / 기타]\n\n확인 후 발급 진행 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림'
   }
 };
 
@@ -2096,6 +2088,10 @@ function buildCardCoComm(records) {
   var items = [];
   records.forEach(function(r) {
     if (!r.d) return;
+
+    // Only include records where card application was submitted (ca=1) but card not yet issued (cd=0)
+    if (!r.ca || r.cd) return; // skip if not applied or already issued
+
     var elapsed = daysDiff(r.d);
     var corp = r.c || '';
     var am = r.am || '';
@@ -2103,49 +2099,24 @@ function buildCardCoComm(records) {
     var mailTemplate = null;
     var phase = '';
 
-    if (r.sub && !r.apr) {
-      commType = '입회 심사 현황 확인';
-      mailTemplate = '입회 심사 현황 확인';
-      phase = '심사확인';
-    } else if (r.sig && r.lr === 0 && !r.lp && !r.ls) {
-      // sig=1, limit review not started yet — only flag if stuck >7 days
-      if (elapsed > 7) {
-        commType = '한도심사 지연 확인';
-        mailTemplate = '한도심사 지연 확인';
-        phase = '심사확인';
-      }
-    } else if (r.sig && r.ls && !r.lr) {
-      // limit review in progress — flag if >7 days
-      if (elapsed > 7) {
-        commType = '한도심사 지연 확인';
-        mailTemplate = '한도심사 지연 확인';
-        phase = '심사확인';
-      }
-    } else if (r.lr && r.lz) {
-      commType = '한도 0원 조치 확인';
-      mailTemplate = '한도 0원 조치 확인';
-      phase = '한도0원';
-    } else if (r.lr && r.lnz && !r.cd) {
+    // Determine communication type based on how long it's been
+    if (elapsed >= 14) {
+      commType = '카드 발급 지연 확인';
+      mailTemplate = '카드 발급 지연 확인';
+    } else if (elapsed >= 7) {
       commType = '카드 발급 진행 확인';
       mailTemplate = '카드 발급 진행 확인';
-      phase = '카드미발급';
+    } else {
+      commType = '카드 발급 현황 확인';
+      mailTemplate = '카드 발급 현황 확인';
     }
-    // apr=1 sig=0 => internal, skip
-    // cd=1 fs=0 => internal, skip
-    // cd=1 fs=1 => done, skip
-
-    if (!commType) return;
+    phase = r.cc || '미선택';
+    var phaseLabel = '발급신청 완료 → 발급 대기';
 
     var urgency, urgencyLabel;
     if (elapsed >= 14) { urgency = 3; urgencyLabel = '🔴'; }
     else if (elapsed >= 7) { urgency = 2; urgencyLabel = '🟡'; }
     else { urgency = 1; urgencyLabel = '🟢'; }
-
-    var phaseLabel;
-    if (phase === '심사확인') phaseLabel = '입회심사 중';
-    else if (phase === '한도0원') phaseLabel = '한도 0원';
-    else if (phase === '카드미발급') phaseLabel = '한도승인 후 미발급';
-    else phaseLabel = phase;
 
     items.push({ corp: corp, am: am, cc: r.cc || '', elapsed: elapsed, urgency: urgency, urgencyLabel: urgencyLabel, commType: commType, mailTemplate: mailTemplate, phase: phase, phaseLabel: phaseLabel, date: r.d });
   });
@@ -2163,25 +2134,28 @@ function buildCardCoComm(records) {
 }
 
 function renderCommTable(items) {
-  var tabs = ['심사확인', '한도0원', '카드미발급', '전체'];
+  var tabs = ['신한카드', '비씨카드', '롯데카드', '미선택', '전체'];
   var counts = {};
-  tabs.forEach(function(t) { counts[t] = t === '전체' ? items.length : items.filter(function(i) { return i.phase === t; }).length; });
+  tabs.forEach(function(t) {
+    if (t === '전체') counts[t] = items.length;
+    else if (t === '미선택') counts[t] = items.filter(function(i) { return !i.cc; }).length;
+    else counts[t] = items.filter(function(i) { return i.cc === t; }).length;
+  });
 
   var tabsEl = document.getElementById('commTabs');
   if (tabsEl) {
     var thtml = '';
     tabs.forEach(function(t) {
-      var label = t;
-      if (t === '심사확인') label = '심사확인';
-      else if (t === '한도0원') label = '한도 0원';
-      else if (t === '카드미발급') label = '카드 미발급';
       var active = commActiveTab === t ? 'style="background:var(--primary);color:#fff"' : '';
-      thtml += '<button class="tab-btn" ' + active + ' onclick="commSwitchTab(\'' + t + '\',this)">' + label + ' <span style="font-size:10px;opacity:0.8">' + counts[t] + '</span></button>';
+      thtml += '<button class="tab-btn" ' + active + ' onclick="commSwitchTab(\'' + t + '\',this)">' + t + ' <span style="font-size:10px;opacity:0.8">' + counts[t] + '</span></button>';
     });
     tabsEl.innerHTML = thtml;
   }
 
-  var filtered = commActiveTab === '전체' ? items : items.filter(function(i) { return i.phase === commActiveTab; });
+  var filtered;
+  if (commActiveTab === '전체') filtered = items;
+  else if (commActiveTab === '미선택') filtered = items.filter(function(i) { return !i.cc; });
+  else filtered = items.filter(function(i) { return i.cc === commActiveTab; });
 
   var tbl = document.getElementById('commTable');
   if (!tbl) return;
@@ -2210,7 +2184,7 @@ function renderCommTable(items) {
     html += '<td>' + item.urgencyLabel + ' D+' + elapsed + '</td>';
     html += '<td><span style="color:var(--primary);font-weight:600;cursor:pointer" onclick="scrollToCorpDetail(\'' + corpEsc + '\')">' + esc(item.corp) + '</span></td>';
     html += '<td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:' + ccStyle.bg + ';color:' + ccStyle.fg + '">' + (item.cc || '-') + '</span></td>';
-    html += '<td><span class="status-badge ' + (item.phase === '심사확인' ? 'progress' : item.phase === '한도0원' ? 'rejected' : 'pending') + '">' + esc(item.phaseLabel) + '</span></td>';
+    html += '<td><span class="status-badge pending">발급대기 D+' + elapsed + '</span></td>';
     html += '<td class="num">' + elapsed + '일</td>';
     html += '<td>' + esc(item.commType) + '</td>';
     html += '<td style="color:var(--text-muted);font-size:12px">' + esc(item.mailTemplate) + '</td>';
