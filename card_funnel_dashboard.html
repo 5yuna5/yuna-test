@@ -167,7 +167,8 @@
       box-shadow: 0 8px 32px rgba(0,0,0,0.25); min-width: 280px; max-width: 400px;
       max-height: 320px; overflow-y: auto; pointer-events: none;
     }
-    .funnel-step:hover .funnel-tooltip { display: block; pointer-events: auto; }
+    .funnel-step:hover .funnel-tooltip,
+    .funnel-step.tooltip-active .funnel-tooltip { display: block; pointer-events: auto; }
     .funnel-tooltip h5 { font-size: 12px; font-weight: 700; color: var(--text-strong); margin-bottom: 8px; }
     .funnel-tooltip .tt-list { list-style: none; padding: 0; }
     .funnel-tooltip .tt-list li {
@@ -188,7 +189,7 @@
     }
     .funnel-tooltip .pin-btn:hover { opacity: 1; }
     .funnel-step.pinned .funnel-tooltip .pin-btn { opacity: 1; color: var(--primary); }
-    @media (max-width: 600px) { .funnel-tooltip { left: 0; min-width: 220px; max-width: 90vw; max-height: 260px; font-size: 11px; } }
+    @media (max-width: 768px) { .funnel-tooltip { left: 0 !important; right: 0; min-width: auto !important; max-width: 90vw !important; max-height: 260px; font-size: 11px; } }
 
     /* ── TABLE ── */
     .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -297,6 +298,10 @@
       .kpi-card .kpi-value { font-size: 20px !important; }
       /* Funnel touch targets */
       .funnel-step { min-height: 36px; }
+      /* Tab button touch targets */
+      .tab-btn { min-height: 36px; min-width: 44px; padding: 6px 12px; font-size: 12px; }
+      /* Modal mobile sizing */
+      .modal { max-width: 95vw !important; }
       .funnel-step .step-label { width: 80px !important; font-size: 11px !important; }
       /* SLA grid mobile */
       .sla-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; }
@@ -325,10 +330,11 @@
     .modal p { font-size:13px; color:var(--text-muted); margin-bottom:12px; }
     .modal code { display:block; background:var(--bg); padding:10px; border-radius:6px; font-size:12px; cursor:pointer; margin-bottom:16px; word-break:break-all; }
     .modal code:hover { background:var(--primary-dim); }
-    .modal .close-btn { background:var(--primary); color:#fff; border:none; border-radius:6px; padding:8px 20px; cursor:pointer; font-size:13px; font-weight:600; }
+    .modal .close-btn { background:var(--primary); color:#fff; border:none; border-radius:6px; padding:12px 20px; min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:13px; font-weight:600; }
     /* ── SIDE PANEL ── */
     .side-panel { position:fixed; right:-480px; top:0; width:480px; height:100vh; background:var(--card); box-shadow:-4px 0 24px rgba(0,0,0,0.15); z-index:150; transition:right 0.3s; overflow-y:auto; padding:24px; }
     .side-panel.active { right:0; }
+    @media(max-width:768px){.side-panel{width:100%;padding:16px;}}
     .side-panel-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.3); z-index:149; }
     .side-panel-backdrop.active { display:block; }
     /* ── HIGHLIGHT ROW ── */
@@ -340,6 +346,12 @@
     }
     .row-highlight td { background: rgba(59,130,246,0.35) !important; }
     .row-highlight { animation: rowFlash 4s ease-out; }
+    /* ── INFO ICON (future-proof) ── */
+    .info-icon { position: relative; display: inline-block; cursor: pointer; }
+    .info-icon .info-popup { display: none; position: absolute; left: 0; bottom: 100%; z-index: 99999; background: var(--card-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 10px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); min-width: 200px; max-width: 320px; font-size: 12px; color: var(--text); pointer-events: none; }
+    .info-icon:hover .info-popup,
+    .info-icon.active .info-popup { display: block; pointer-events: auto; }
+    @media (max-width: 768px) { .info-icon .info-popup { left: auto; right: 0; max-width: 80vw; } }
   </style>
 </head>
 <body>
@@ -894,7 +906,7 @@ function buildAlerts(records) {
   html += '</div>';
 
   // Alert list
-  html += '<div id="alertList" style="max-height:200px;overflow-y:auto">';
+  html += '<div id="alertList" style="max-height:200px;overflow-y:auto;overflow-x:auto;-webkit-overflow-scrolling:touch">';
   html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>';
   alerts.forEach(function(a) {
     var corpEsc = esc(a.corp).replace(/'/g,"\\'");
@@ -1762,6 +1774,7 @@ function buildTodoPanel(records) {
 
     // Table (collapsible)
     html += '<div id="' + catId + '" style="display:none;padding:0 12px 12px">';
+    html += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
     html += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
     html += '<thead><tr style="border-bottom:1px solid var(--border)">';
     html += '<th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:600">\uAE34\uAE09\uB3C4</th>';
@@ -1786,7 +1799,7 @@ function buildTodoPanel(records) {
       html += '<td style="padding:4px 6px;color:var(--text-muted)">' + esc(item.am) + '</td>';
       html += '</tr>';
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
 
     if (items.length > defaultShow) {
       html += '<button onclick="document.querySelectorAll(\'.todo-more-' + catId + '\').forEach(function(el){el.style.display=el.style.display===\'none\'?\'table-row\':\'none\'});this.textContent=this.textContent.indexOf(\'\uB354\uBCF4\uAE30\')>=0?\'\uC811\uAE30\':\'\uB354\uBCF4\uAE30 (' + (items.length - defaultShow) + '\uAC74)\'" style="margin-top:6px;background:none;border:1px solid var(--border);border-radius:4px;padding:3px 12px;font-size:11px;color:var(--text-muted);cursor:pointer">\uB354\uBCF4\uAE30 (' + (items.length - defaultShow) + '\uAC74)</button>';
@@ -2097,6 +2110,71 @@ if (window.parent !== window && window.location.search.includes('embedded=1')) {
   new ResizeObserver(notifyHeight).observe(document.body);
   window.addEventListener('load', notifyHeight);
 }
+</script>
+
+<script>
+// ── MOBILE TOUCH SUPPORT ──
+(function() {
+  var isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (!isTouchDevice) return;
+  document.addEventListener('click', function(e) {
+    var step = e.target.closest('.funnel-step');
+    if (step) {
+      var wasActive = step.classList.contains('tooltip-active');
+      document.querySelectorAll('.funnel-step.tooltip-active').forEach(function(el) {
+        el.classList.remove('tooltip-active');
+      });
+      if (!wasActive) step.classList.add('tooltip-active');
+      return;
+    }
+    var infoIcon = e.target.closest('.info-icon');
+    if (infoIcon) {
+      var wasInfoActive = infoIcon.classList.contains('active');
+      document.querySelectorAll('.info-icon.active').forEach(function(el) {
+        el.classList.remove('active');
+      });
+      if (!wasInfoActive) infoIcon.classList.add('active');
+      return;
+    }
+    document.querySelectorAll('.funnel-step.tooltip-active').forEach(function(el) {
+      el.classList.remove('tooltip-active');
+    });
+    document.querySelectorAll('.info-icon.active').forEach(function(el) {
+      el.classList.remove('active');
+    });
+  });
+  var panel = document.querySelector('.side-panel');
+  if (panel) {
+    var touchStartX = 0;
+    panel.addEventListener('touchstart', function(e) {
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    panel.addEventListener('touchend', function(e) {
+      var diff = e.changedTouches[0].clientX - touchStartX;
+      if (diff > 80) closeSidePanel();
+    }, { passive: true });
+  }
+})();
+
+// ── ESCAPE KEY SUPPORT ──
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  // Close side panel
+  if (typeof closeSidePanel === 'function') closeSidePanel();
+  // Close modals
+  if (typeof closeUpdateModal === 'function') {
+    var updateModal = document.getElementById('updateModal');
+    if (updateModal && updateModal.classList.contains('active')) closeUpdateModal();
+  }
+  if (typeof closeVersionHistory === 'function') {
+    var versionModal = document.getElementById('versionModal');
+    if (versionModal && versionModal.classList.contains('active')) closeVersionHistory();
+  }
+  if (typeof closeMailTemplate === 'function') {
+    var mailModal = document.getElementById('mailTemplateModal');
+    if (mailModal && mailModal.classList.contains('active')) closeMailTemplate();
+  }
+});
 </script>
 
 <!-- ── MODALS ── -->

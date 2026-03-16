@@ -214,12 +214,14 @@
       font-size: 12px; line-height: 1.6; color: var(--text); font-weight: 400;
       pointer-events: none; text-align: left;
     }
-    .info-icon:hover .info-popup { display: block; pointer-events: auto; }
+    .info-icon:hover .info-popup,
+    .info-icon.active .info-popup { display: block; pointer-events: auto; }
     .info-popup strong { color: var(--text-strong); }
     .info-popup .info-type { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-right: 4px; }
     .info-popup .info-type.auto { background: var(--primary-dim); color: var(--primary); }
     .info-popup .info-type.special { background: #f59e0b22; color: #f59e0b; }
     @media (max-width: 600px) { .info-icon .info-popup { left: auto; right: 0; width: 260px; } }
+    @media (max-width: 768px) { .info-icon .info-popup { left: auto; right: 0; max-width: 80vw; } }
 
     /* ── MOBILE ── */
     @media (max-width: 600px) {
@@ -299,7 +301,8 @@
       box-shadow: 0 8px 32px rgba(0,0,0,0.25); min-width: 280px; max-width: 400px;
       max-height: 320px; overflow-y: auto; pointer-events: none;
     }
-    .funnel-step:hover .funnel-tooltip { display: block; pointer-events: auto; }
+    .funnel-step:hover .funnel-tooltip,
+    .funnel-step.tooltip-active .funnel-tooltip { display: block; pointer-events: auto; }
     .funnel-tooltip h5 { font-size: 12px; font-weight: 700; color: var(--text-strong); margin-bottom: 8px; }
     .funnel-tooltip .tt-list { list-style: none; padding: 0; }
     .funnel-tooltip .tt-list li {
@@ -406,10 +409,10 @@
         font-size: 16px !important;
         min-height: 36px; padding: 6px 8px;
       }
-      .filter-bar .tab-btn {
-        min-height: 36px; min-width: 44px;
+      .tab-btn {
+        min-height: 36px; min-width: 44px; padding: 6px 12px; font-size: 12px;
       }
-      .funnel-step { min-height: 36px; }
+      .funnel-step { min-height: 36px; cursor: pointer; }
       .funnel-step .step-label { width: 70px !important; font-size: 10px !important; }
       .grid-2, .grid-3 { grid-template-columns: 1fr !important; }
       .type-compare-grid { grid-template-columns: 1fr !important; }
@@ -417,12 +420,14 @@
       .section { margin-bottom: 20px; }
       .container { padding: 12px !important; }
       body.embedded { padding-bottom: 64px; }
+      .funnel-tooltip { left: 0 !important; right: 0; min-width: auto !important; max-width: 90vw !important; }
+      .modal { max-width: 95vw !important; }
     }
 .side-panel { position:fixed; right:-480px; top:0; width:480px; height:100vh; background:var(--card); box-shadow:-4px 0 24px rgba(0,0,0,0.15); z-index:150; transition:right 0.3s; overflow-y:auto; padding:24px; }
 .side-panel.active { right:0; }
 .side-panel-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.3); z-index:149; }
 .side-panel-backdrop.active { display:block; }
-@media(max-width:520px){.side-panel{width:100%}}
+@media(max-width:768px){.side-panel{width:100%;padding:16px;}}
     /* ── COLLAPSE TOGGLE ── */
     .collapse-toggle {
       cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
@@ -1023,7 +1028,7 @@ function openMailTemplate(templateKey, corpName, am, elapsed, submitDate, cardCo
   html += '<h3 style="font-size:16px;font-weight:700;color:var(--text-strong);margin-bottom:4px">' + esc(templateKey) + '</h3>';
   html += '<span style="font-size:12px;padding:2px 8px;border-radius:4px;background:var(--primary-dim);color:var(--primary)">' + tmpl.grade + '</span>';
   html += '</div>';
-  html += '<button onclick="closeMailTemplate()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-muted);padding:4px;line-height:1">&times;</button>';
+  html += '<button onclick="closeMailTemplate()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-muted);padding:12px;line-height:1;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center">&times;</button>';
   html += '</div>';
 
   html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;display:flex;gap:16px;flex-wrap:wrap;font-size:12px">';
@@ -1135,8 +1140,8 @@ function buildAlerts() {
   if (items.length === 0) {
     html += '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px">해당 항목이 없습니다</div>';
   } else {
-    html += '<div style="max-height:200px;overflow-y:auto">';
-    html += '<table class="data-table" style="font-size:11px;width:100%"><thead><tr><th>법인명</th><th>경과일</th><th>카드사</th><th>담당 AM</th>';
+    html += '<div style="max-height:200px;overflow-y:auto;overflow-x:auto;-webkit-overflow-scrolling:touch">';
+    html += '<table class="data-table" style="font-size:11px;width:100%;min-width:400px"><thead><tr><th>법인명</th><th>경과일</th><th>카드사</th><th>담당 AM</th>';
     if (currentAlertTab === 'SLA초과') html += '<th>초과 구간</th>';
     html += '<th>신청일</th></tr></thead><tbody>';
     items.forEach(a => {
@@ -2660,7 +2665,7 @@ function openCorpDetail(corpName) {
   var h = '';
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
   h += '<h3 style="font-size:16px;font-weight:700;color:var(--text-strong)">' + esc(record.corp) + '</h3>';
-  h += '<button onclick="closeSidePanel()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);padding:4px">&times;</button>';
+  h += '<button onclick="closeSidePanel()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-muted);padding:12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center">&times;</button>';
   h += '</div>';
 
   // Status + Next Action + Mail Template
@@ -2981,7 +2986,63 @@ function quickFilter(days) {
   applyFilter();
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeUpdateModal(); closeMailTemplate(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeUpdateModal(); closeMailTemplate(); closeSidePanel(); closeVersionHistory(); }
+});
+
+// ── MOBILE TOUCH SUPPORT ──
+(function() {
+  var isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (!isTouchDevice) return;
+
+  // Funnel step: tap to toggle tooltip
+  document.addEventListener('click', function(e) {
+    var step = e.target.closest('.funnel-step');
+    if (step) {
+      var wasActive = step.classList.contains('tooltip-active');
+      // Close all other tooltips
+      document.querySelectorAll('.funnel-step.tooltip-active').forEach(function(el) {
+        el.classList.remove('tooltip-active');
+      });
+      if (!wasActive) {
+        step.classList.add('tooltip-active');
+      }
+      return;
+    }
+    // Info icon: tap to toggle popup
+    var infoIcon = e.target.closest('.info-icon');
+    if (infoIcon) {
+      var wasInfoActive = infoIcon.classList.contains('active');
+      document.querySelectorAll('.info-icon.active').forEach(function(el) {
+        el.classList.remove('active');
+      });
+      if (!wasInfoActive) {
+        infoIcon.classList.add('active');
+      }
+      return;
+    }
+    // Tap outside: close all tooltips/popups
+    document.querySelectorAll('.funnel-step.tooltip-active').forEach(function(el) {
+      el.classList.remove('tooltip-active');
+    });
+    document.querySelectorAll('.info-icon.active').forEach(function(el) {
+      el.classList.remove('active');
+    });
+  });
+
+  // Side panel: swipe right to close
+  var panel = document.querySelector('.side-panel');
+  if (panel) {
+    var touchStartX = 0;
+    panel.addEventListener('touchstart', function(e) {
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    panel.addEventListener('touchend', function(e) {
+      var diff = e.changedTouches[0].clientX - touchStartX;
+      if (diff > 80) closeSidePanel();
+    }, { passive: true });
+  }
+})();
 </script>
 
 <div class="modal-overlay" id="versionModal" onclick="if(event.target===this)closeVersionHistory()">
