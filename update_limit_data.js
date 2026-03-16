@@ -131,7 +131,7 @@ async function fetchFunnelData() {
       ROUND(AVG(requested_limit_amount) / 10000, 0) AS avg_requested_limit
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
-      AND initialized_at >= '2025-06-01'
+      AND initialized_at >= '2025-01-01'
     GROUP BY 1, 2
     ORDER BY 1, 2
   `);
@@ -201,7 +201,7 @@ async function fetchSLAData() {
       ROUND(SAFE_DIVIDE(COUNTIF(is_card_co_review_duration_over), COUNT(*)) * 100, 1) AS pct_card_co_review_over
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
-      AND initialized_at >= '2025-06-01'
+      AND initialized_at >= '2025-01-01'
       -- 완료 건만 (미완료 건 제외하여 SLA 왜곡 방지)
       AND (card_co_approved_at IS NOT NULL
         OR gowid_rejected_at IS NOT NULL
@@ -257,7 +257,7 @@ async function fetchDetailData() {
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
     WHERE a.application_type IN ('한도상향', '카드사 추가')
-      AND a.initialized_at >= '2025-06-01'
+      AND a.initialized_at >= '2025-01-01'
     ORDER BY a.initialized_at DESC
   `);
 
@@ -300,7 +300,7 @@ async function fetchCardCoData() {
       ROUND(AVG(total_review_duration), 1) AS avg_total
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
-      AND initialized_at >= '2025-06-01'
+      AND initialized_at >= '2025-01-01'
     GROUP BY 1, 2
     ORDER BY total DESC
   `);
@@ -354,7 +354,7 @@ async function fetchRecordData() {
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
     WHERE a.application_type IN ('한도상향', '카드사 추가')
-      AND a.initialized_at >= '2025-06-01'
+      AND a.initialized_at >= '2025-01-01'
     ORDER BY a.initialized_at DESC
   `);
 
