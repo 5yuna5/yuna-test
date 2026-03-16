@@ -233,7 +233,7 @@
       font-size: 12px; color: var(--text-muted); transition: all 0.15s;
     }
     .tab-btn:hover { background: var(--primary-dim); color: var(--primary); }
-    .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; box-shadow: 0 2px 8px rgba(59,130,246,0.25); }
 
     /* ── COLLAPSIBLE ── */
     .collapse-toggle {
@@ -253,6 +253,15 @@
     .sla-card .sla-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
     .sla-card .sla-value { font-size: 20px; font-weight: 700; color: var(--text-strong); }
     .sla-card .sla-unit { font-size: 11px; color: var(--text-muted); }
+
+    /* ── INLINE ALERTS (dark-mode safe) ── */
+    .inline-alert { border-radius: var(--radius-sm); padding: 10px 16px; margin-top: 12px; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .inline-alert.danger { background: rgba(240,96,96,0.1); border: 1px solid rgba(240,96,96,0.3); color: var(--accent); }
+    .inline-alert.caution { background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); color: var(--warning); font-size: 11px; padding: 8px 16px; margin-top: 8px; }
+
+    /* ── SECTION TITLE ACCENT ── */
+    .section-title { padding-left: 10px; border-left: 3px solid var(--primary); }
+    .section-title.collapse-toggle { border-left: none; padding-left: 0; }
 
     /* ── PRINT ── */
     @media print {
@@ -931,7 +940,7 @@ function buildAlerts(records) {
 
   // Alert list
   html += '<div id="alertList" style="max-height:200px;overflow-y:auto;overflow-x:auto;-webkit-overflow-scrolling:touch">';
-  html += '<table style="width:100%;border-collapse:collapse;font-size:11px"><tbody>';
+  html += '<table class="data-table" style="width:100%;border-collapse:collapse;font-size:11px"><tbody>';
   alerts.forEach(function(a) {
     html += '<tr data-alertcat="' + a.cat + '" data-scroll-corp="' + esc(a.corp) + '" style="border-bottom:1px solid var(--border);cursor:pointer">';
     html += '<td style="padding:3px 6px">' + (a.type==='danger'?'\uD83D\uDD34':'\uD83D\uDFE1') + '</td>';
@@ -1016,7 +1025,7 @@ function buildKPIs(t, sla) {
     });
     var hasRisk = sevenPlusCnt > 0 || slaOverCnt > 0 || notSignedD14 > 0;
     if (hasRisk) {
-      riskEl.innerHTML = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:var(--radius-sm);padding:10px 16px;margin-top:12px;font-size:12px;color:#991b1b;display:flex;gap:16px;flex-wrap:wrap">'
+      riskEl.innerHTML = '<div class="inline-alert danger">'
         + (sevenPlusCnt > 0 ? '<span>⚠ 7일+ 미처리: <strong>' + sevenPlusCnt + '건</strong></span>' : '')
         + (slaOverCnt > 0 ? '<span>⚠ SLA 초과(신청→발급 30일+): <strong>' + slaOverCnt + '건</strong></span>' : '')
         + (notSignedD14 > 0 ? '<span>⚠ 미가입 D+14 이상: <strong>' + notSignedD14 + '건</strong></span>' : '')
@@ -1034,7 +1043,7 @@ function buildKPIs(t, sla) {
     var curMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     if (endDate && endDate.slice(0, 7) >= curMonth) {
       var monthNum = now.getMonth() + 1;
-      matEl.innerHTML = '<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:var(--radius-sm);padding:8px 16px;margin-top:8px;font-size:11px;color:#92400e">'
+      matEl.innerHTML = '<div class="inline-alert caution">'
         + '⚠ 현재 월(' + monthNum + '월) 데이터가 포함되어 있습니다. 전환율·SLA는 진행 중인 건이 포함되어 최종 수치와 다를 수 있습니다.</div>';
     } else {
       matEl.innerHTML = '';
@@ -1386,19 +1395,20 @@ function buildMonthlyTable(records) {
 // ─── SLA ───
 function buildSLA(sla) {
   const items = [
-    { label: '신청→가입', value: (sla.d1 != null && sla.d2 != null) ? Math.round((sla.d1 + sla.d2) * 10) / 10 : null, unit: '일' },
-    { label: '가입→한도산출', value: sla.d3, unit: '일' },
-    { label: '한도→발급신청', value: sla.s3, unit: '일' },
-    { label: '발급신청→발급', value: sla.s4, unit: '일' },
+    { label: '신청→가입', value: (sla.d1 != null && sla.d2 != null) ? Math.round((sla.d1 + sla.d2) * 10) / 10 : null, unit: '일', ok: 14, warn: 21 },
+    { label: '가입→한도산출', value: sla.d3, unit: '일', ok: 7, warn: 14 },
+    { label: '한도→발급신청', value: sla.s3, unit: '일', ok: 14, warn: 30 },
+    { label: '발급신청→발급', value: sla.s4, unit: '일', ok: 7, warn: 14 },
   ];
 
-  document.getElementById('slaGrid').innerHTML = items.map(it => `
-    <div class="sla-card">
+  document.getElementById('slaGrid').innerHTML = items.map(it => {
+    var color = it.value == null ? '' : it.value <= it.ok ? 'color:var(--success)' : it.value <= it.warn ? 'color:var(--warning)' : 'color:var(--accent)';
+    return `<div class="sla-card">
       <div class="sla-label">${it.label}</div>
-      <div class="sla-value">${it.value != null ? it.value : '-'}</div>
+      <div class="sla-value" style="${color}">${it.value != null ? it.value : '-'}</div>
       <div class="sla-unit">${it.value != null ? it.unit : ''}</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 // ─── AM TABLE ───
@@ -1802,6 +1812,7 @@ function buildTodoPanel(records) {
   html += '</div>';
 
   // Category sections with collapse
+  var firstCatShown = false;
   catOrder.forEach(function(cat) {
     var items = groups[cat];
     if (!items || items.length === 0) return;
@@ -1821,7 +1832,9 @@ function buildTodoPanel(records) {
     html += '</div>';
 
     // Table (collapsible)
-    html += '<div id="' + catId + '" style="display:none;padding:0 12px 12px">';
+    var initDisplay = firstCatShown ? 'none' : 'block';
+    firstCatShown = true;
+    html += '<div id="' + catId + '" style="display:' + initDisplay + ';padding:0 12px 12px">';
     html += '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
     html += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
     html += '<thead><tr style="border-bottom:1px solid var(--border)">';
