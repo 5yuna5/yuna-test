@@ -2212,7 +2212,6 @@ function renderCommTable(items) {
   filtered.forEach(function(item) {
     var amEsc = esc(item.am);
     var elapsed = item.elapsed;
-    var dateEsc = esc(item.date);
     var ccStyle = ccColors[item.cc] || { bg: 'var(--bg)', fg: 'var(--text-muted)' };
 
     html += '<tr>';
@@ -2224,7 +2223,7 @@ function renderCommTable(items) {
     html += '<td>' + esc(item.commType) + '</td>';
     html += '<td style="color:var(--text-muted);font-size:12px">' + esc(item.mailTemplate) + '</td>';
     html += '<td>' + (amEsc || '<span style="color:var(--text-muted)">-</span>') + '</td>';
-    html += '<td><button onclick="openCommMailDraft(\'' + corpEsc + '\',\'' + commTypeEsc + '\',' + elapsed + ',\'' + dateEsc + '\',\'' + amEsc.replace(/'/g,"\\'") + '\',\'' + ccEsc + '\')" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">메일 초안</button></td>';
+    html += '<td><button data-comm-corp="' + esc(item.corp) + '" data-comm-type="' + esc(item.commType) + '" data-comm-elapsed="' + elapsed + '" data-comm-date="' + esc(item.date) + '" data-comm-am="' + amEsc + '" data-comm-cc="' + esc(item.cc) + '" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap">메일 초안</button></td>';
     html += '</tr>';
   });
 
@@ -2396,12 +2395,14 @@ function init() {
   }
 }
 
-// Event delegation for corp name clicks (XSS-safe)
+// Event delegation for corp name clicks and comm mail buttons (XSS-safe)
 document.addEventListener('click', function(e) {
   var el = e.target.closest('[data-open-corp]');
   if (el) { openCorpDetail(el.dataset.openCorp); return; }
   var el2 = e.target.closest('[data-scroll-corp]');
   if (el2) { scrollToCorpDetail(el2.dataset.scrollCorp); return; }
+  var el3 = e.target.closest('[data-comm-corp]');
+  if (el3) { openCommMailDraft(el3.dataset.commCorp, el3.dataset.commType, Number(el3.dataset.commElapsed), el3.dataset.commDate, el3.dataset.commAm, el3.dataset.commCc); return; }
 });
 
 document.addEventListener('DOMContentLoaded', init);
