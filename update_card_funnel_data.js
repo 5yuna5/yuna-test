@@ -254,6 +254,10 @@ async function fetchRecordData() {
           THEN GREATEST(DATETIME_DIFF(ci.ci_issued, c.latest_application_created_at, DAY), 0) END AS dt,
         CASE WHEN cd.first_spend IS NOT NULL AND ci.ci_issued IS NOT NULL
           THEN GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, DAY), 0) END AS d5,
+        CASE WHEN ci.ci_applied IS NOT NULL AND lr.lr_at IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(ci.ci_applied, lr.lr_at, DAY), 0) END AS s3,
+        CASE WHEN ci.ci_issued IS NOT NULL AND ci.ci_applied IS NOT NULL
+          THEN GREATEST(DATETIME_DIFF(ci.ci_issued, ci.ci_applied, DAY), 0) END AS s4,
         -- 보증금/특별심사 구분
         IFNULL(src.is_special, 0) AS is_special
       FROM cohort c
@@ -296,6 +300,7 @@ async function fetchRecordData() {
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
         CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
+        CAST(NULL AS INT64) AS s3, CAST(NULL AS INT64) AS s4,
         -- 보증금/특별심사 구분
         IFNULL(src2.is_special, 0) AS is_special,
         1 AS no_app
@@ -351,6 +356,8 @@ async function fetchRecordData() {
     d4: r.d4 != null ? Number(r.d4) : null,
     dt: r.dt != null ? Number(r.dt) : null,
     d5: r.d5 != null ? Number(r.d5) : null,
+    s3: r.s3 != null ? Number(r.s3) : null,
+    s4: r.s4 != null ? Number(r.s4) : null,
     id: r.issued_date || null,
     cc: r.card_company || '',
     na: Number(r.no_app || 0),
