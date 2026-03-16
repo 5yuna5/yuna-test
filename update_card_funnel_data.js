@@ -203,14 +203,28 @@ async function fetchRecordData() {
         AND ca.corporationName IS NOT NULL AND ca.corporationName != ''
       GROUP BY 1
     ),
-    -- 보증금/특별심사 구분 (한도 0원 고객)
-    special_review_check AS (
+    -- 보증금 신청/확인 (DepositApplication)
+    deposit_check AS (
       SELECT o.brn_key,
-        MAX(CASE WHEN a.gowid_status = '고위드 특별심사' THEN 1 ELSE 0 END) AS is_special
-      FROM \`gowid-prd.mart_limit_application.application_status\` a
-      JOIN corp_ods o ON a.corp_id = o.corp_idx
-      WHERE a.gowid_approved_limit_amount = 0
-        AND a.gowid_rejected_at IS NULL
+        1 AS deposit_applied,
+        MAX(CASE WHEN da.depositConfirmed = 1 THEN 1 ELSE 0 END) AS deposit_confirmed
+      FROM \`gowid-prd.ods_stream_gowid.DepositApplication\` da
+      JOIN corp_ods o ON da.idxCorp = o.corp_idx
+      GROUP BY o.brn_key
+    ),
+    -- 특별심사 신청/승인 (ManualLimitApplication CDC dedup)
+    special_check AS (
+      SELECT o.brn_key,
+        1 AS special_requested,
+        MAX(CASE WHEN mla.resultReviewStatus IN ('APPROVED', 'PARTIAL_APPROVED') THEN 1 ELSE 0 END) AS special_approved
+      FROM (
+        SELECT id, limitApplicationId, resultReviewStatus
+        FROM \`gowid-prd.ods_stream_gowid.ManualLimitApplication\`
+        WHERE type = 'SPECIAL'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY updatedAt DESC) = 1
+      ) mla
+      JOIN \`gowid-prd.ods_stream_gowid.LimitApplication\` la ON la.id = mla.limitApplicationId
+      JOIN corp_ods o ON la.idxCorp = o.corp_idx
       GROUP BY o.brn_key
     ),
     base AS (
@@ -258,8 +272,11 @@ async function fetchRecordData() {
           THEN GREATEST(DATETIME_DIFF(ci.ci_applied, lr.lr_at, DAY), 0) END AS s3,
         CASE WHEN ci.ci_issued IS NOT NULL AND ci.ci_applied IS NOT NULL
           THEN GREATEST(DATETIME_DIFF(ci.ci_issued, ci.ci_applied, DAY), 0) END AS s4,
-        -- 보증금/특별심사 구분
-        IFNULL(src.is_special, 0) AS is_special
+        -- 보증금/특별심사 (실제 ODS 테이블 기반)
+        IFNULL(dep.deposit_applied, 0) AS deposit_applied,
+        IFNULL(dep.deposit_confirmed, 0) AS deposit_confirmed,
+        IFNULL(spc.special_requested, 0) AS special_requested,
+        IFNULL(spc.special_approved, 0) AS special_approved
       FROM cohort c
       LEFT JOIN corp_map_after_app m USING (brn_key)
       LEFT JOIN limit_flow_after_app lf USING (brn_key)
@@ -269,7 +286,8 @@ async function fetchRecordData() {
       LEFT JOIN am_map am USING (brn_key)
       LEFT JOIN corp_name_map cn USING (brn_key)
       LEFT JOIN app_name_map acn USING (brn_key)
-      LEFT JOIN special_review_check src USING (brn_key)
+      LEFT JOIN deposit_check dep USING (brn_key)
+      LEFT JOIN special_check spc USING (brn_key)
     ),
     -- CardApplication 없이 카드 발급된 법인 (다른 온보딩 경로)
     -- Metabase #4299 로직: Corp.createdAt(회원가입일) 기준 코호트, CardApplication 없는 법인만
@@ -301,12 +319,16 @@ async function fetchRecordData() {
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
         CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
         CAST(NULL AS INT64) AS s3, CAST(NULL AS INT64) AS s4,
-        -- 보증금/특별심사 구분
-        IFNULL(src2.is_special, 0) AS is_special,
+        -- 보증금/특별심사 (실제 ODS 테이블 기반)
+        IFNULL(dep2.deposit_applied, 0) AS deposit_applied,
+        IFNULL(dep2.deposit_confirmed, 0) AS deposit_confirmed,
+        IFNULL(spc2.special_requested, 0) AS special_requested,
+        IFNULL(spc2.special_approved, 0) AS special_approved,
         1 AS no_app
       FROM \`gowid-prd.ods_stream_gowid.Corp\` c
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` dim ON dim.corp_id = c.idx
-      LEFT JOIN special_review_check src2 ON src2.brn_key = REPLACE(c.resCompanyIdentityNo, '-', '')
+      LEFT JOIN deposit_check dep2 ON dep2.brn_key = REPLACE(c.resCompanyIdentityNo, '-', '')
+      LEFT JOIN special_check spc2 ON spc2.brn_key = REPLACE(c.resCompanyIdentityNo, '-', '')
       -- 카드 발급 정보 집계
       LEFT JOIN (
         SELECT ci.idxCorp,
@@ -361,7 +383,10 @@ async function fetchRecordData() {
     id: r.issued_date || null,
     cc: r.card_company || '',
     na: Number(r.no_app || 0),
-    lzs: Number(r.is_special || 0),
+    da: Number(r.deposit_applied || 0),
+    dc: Number(r.deposit_confirmed || 0),
+    sr: Number(r.special_requested || 0),
+    sa: Number(r.special_approved || 0),
     crm: '',
   }));
 }

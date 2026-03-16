@@ -533,7 +533,8 @@
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">비교 월:</span>
       <div id="monthButtons" style="display:flex;gap:4px;flex-wrap:wrap"></div>
-      <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px">전체</button>
+      <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px">전체 선택</button>
+      <button class="tab-btn" onclick="deselectAllMonths()" style="font-size:10px;padding:2px 6px">전체 해제</button>
       <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근 3개월</button>
       <button class="tab-btn" onclick="selectRecentMonths(6)" style="font-size:10px;padding:2px 6px">최근 6개월</button>
       <span id="monthSelectInfo" style="font-size:11px;color:var(--text-muted);margin-left:auto"></span>
@@ -1586,6 +1587,13 @@ function initMonthSelect() {
 function selectAllMonths() {
   document.querySelectorAll('#monthButtons .tab-btn').forEach(function(b){ b.classList.add('active'); });
   selectedMonths = new Set(Array.from(document.querySelectorAll('#monthButtons .tab-btn.active')).map(function(b){ return b.dataset.month; }));
+  updateMonthInfo();
+  buildMonthlyTrendIndependent();
+}
+
+function deselectAllMonths() {
+  document.querySelectorAll('#monthButtons .tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  selectedMonths = new Set();
   updateMonthInfo();
   buildMonthlyTrendIndependent();
 }
