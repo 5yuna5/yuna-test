@@ -92,8 +92,8 @@ async function fetchRecordData() {
         MIN(IF(ci.appliedAt >= c.latest_application_created_at, ci.appliedAt, NULL)) AS ci_applied,
         MIN(IF(ci.issuedAt >= c.latest_application_created_at, ci.issuedAt, NULL)) AS ci_issued,
         ARRAY_AGG(
-          IF(ci.issuedAt >= c.latest_application_created_at AND ci.cardCompany IS NOT NULL, ci.cardCompany, NULL)
-          IGNORE NULLS ORDER BY ci.issuedAt ASC LIMIT 1
+          IF(ci.createdAt >= c.latest_application_created_at AND ci.cardCompany IS NOT NULL, ci.cardCompany, NULL)
+          IGNORE NULLS ORDER BY ci.createdAt ASC LIMIT 1
         )[SAFE_OFFSET(0)] AS card_co
       FROM cohort c LEFT JOIN corp_ods o ON c.brn_key = o.brn_key
       LEFT JOIN \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci ON ci.idxCorp = o.corp_idx
