@@ -324,6 +324,7 @@
       border-radius: 6px; padding: 6px 16px; cursor: pointer;
       font-size: 13px; color: var(--text-muted); transition: all 0.15s;
     }
+    .tab-btn:hover { background: var(--primary-dim); color: var(--primary); }
     .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
     /* ── DETAIL TABLE SCROLL ── */
@@ -423,11 +424,12 @@
       .funnel-tooltip { left: 0 !important; right: 0; min-width: auto !important; max-width: 90vw !important; }
       .modal { max-width: 95vw !important; }
     }
-.side-panel { position:fixed; right:-480px; top:0; width:480px; height:100vh; background:var(--card); box-shadow:-4px 0 24px rgba(0,0,0,0.15); z-index:150; transition:right 0.3s; overflow-y:auto; padding:24px; }
-.side-panel.active { right:0; }
-.side-panel-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.3); z-index:149; }
-.side-panel-backdrop.active { display:block; }
-@media(max-width:768px){.side-panel{width:100%;padding:16px;}}
+    /* ── SIDE PANEL ── */
+    .side-panel { position:fixed; right:-480px; top:0; width:480px; height:100vh; background:var(--card); box-shadow:-4px 0 24px rgba(0,0,0,0.15); z-index:150; transition:right 0.3s; overflow-y:auto; padding:24px; }
+    .side-panel.active { right:0; }
+    .side-panel-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.3); z-index:149; }
+    .side-panel-backdrop.active { display:block; }
+    @media(max-width:768px){.side-panel{width:100%;padding:16px;}}
     /* ── COLLAPSE TOGGLE ── */
     .collapse-toggle {
       cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
@@ -481,10 +483,10 @@
 
   <!-- ── FILTER BAR ── -->
   <div class="filter-bar"><!-- quickFilter__PATCHED -->
-    <button class="tab-btn" onclick="quickFilter(7)" style="padding:2px 8px;font-size:11px">7일</button>
-    <button class="tab-btn" onclick="quickFilter(30)" style="padding:2px 8px;font-size:11px">30일</button>
-    <button class="tab-btn" onclick="quickFilter(90)" style="padding:2px 8px;font-size:11px">90일</button>
-    <button class="tab-btn" onclick="quickFilter(0)" style="padding:2px 8px;font-size:11px">전체</button>
+    <button class="tab-btn" onclick="quickFilter(7,this)" style="padding:2px 8px;font-size:11px">7일</button>
+    <button class="tab-btn" onclick="quickFilter(30,this)" style="padding:2px 8px;font-size:11px">30일</button>
+    <button class="tab-btn" onclick="quickFilter(90,this)" style="padding:2px 8px;font-size:11px">90일</button>
+    <button class="tab-btn" onclick="quickFilter(0,this)" style="padding:2px 8px;font-size:11px">전체</button>
     <label>기간</label>
     <input type="date" id="filterStart" onchange="applyFilter()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:12px">
     <span style="color:var(--text-muted)">~</span>
@@ -533,6 +535,7 @@
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">비교 월:</span>
       <div id="monthButtons" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+      <span style="width:1px;background:var(--border-strong);align-self:stretch;margin:0 4px"></span>
       <button class="tab-btn" onclick="selectAllMonths()" style="font-size:10px;padding:2px 6px">전체 선택</button>
       <button class="tab-btn" onclick="deselectAllMonths()" style="font-size:10px;padding:2px 6px">전체 해제</button>
       <button class="tab-btn" onclick="selectRecentMonths(3)" style="font-size:10px;padding:2px 6px">최근 3개월</button>
@@ -3002,7 +3005,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ─── B3: QUICK FILTER ───
-function quickFilter(days) {
+function quickFilter(days, el) {
+  document.querySelectorAll('.filter-bar .tab-btn[onclick^="quickFilter"]').forEach(function(b) { b.classList.remove('active'); });
+  if (el) el.classList.add('active');
   const dates = RECORD_DATA.map(r => r.d).filter(Boolean).sort();
   if (dates.length === 0) return;
   const maxDate = dates[dates.length - 1];
