@@ -3290,6 +3290,7 @@ function buildCardCoComm() {
   var tHtml = '<thead><tr>';
   tHtml += '<th style="width:36px">우선순위</th>';
   tHtml += '<th>법인명</th>';
+  tHtml += '<th>카드사</th>';
   tHtml += '<th>진행현황</th>';
   tHtml += '<th class="num">경과일</th>';
   tHtml += '<th>이슈 요약</th>';
@@ -3300,15 +3301,19 @@ function buildCardCoComm() {
   tHtml += '</tr></thead><tbody>';
 
   if (visibleItems.length === 0) {
-    tHtml += '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px">이 카드사에 해당하는 커뮤니케이션 대상이 없습니다</td></tr>';
+    tHtml += '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px">이 카드사에 해당하는 커뮤니케이션 대상이 없습니다</td></tr>';
   } else {
+    var _ccColors = { '신한카드': { bg: '#0046ff22', fg: '#0046ff' }, '비씨카드': { bg: '#e6001922', fg: '#e60019' }, '롯데카드': { bg: '#ed180822', fg: '#ed1808' } };
     visibleItems.forEach(function(item) {
       var urgColor = item.urgency === 'urgent' ? 'var(--accent)' : item.urgency === 'warning' ? 'var(--warning)' : 'var(--success)';
       var corpSafe = item.corp.replace(/'/g, "\\'");
       var commSafe = item.commType.replace(/'/g, "\\'");
+      var ccVal = item.card_co || '';
+      var _cs = _ccColors[ccVal] || { bg: 'var(--bg)', fg: 'var(--text-muted)' };
       tHtml += '<tr>';
       tHtml += '<td style="text-align:center;font-size:16px">' + item.urgEmoji + '</td>';
       tHtml += '<td style="font-weight:600;color:var(--primary);cursor:pointer" onclick="openCorpDetail(\'' + corpSafe + '\')">' + esc(item.corp) + '</td>';
+      tHtml += '<td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:' + _cs.bg + ';color:' + _cs.fg + '">' + (ccVal || '-') + '</span></td>';
       tHtml += '<td>' + getStatusBadge(item.status) + '</td>';
       tHtml += '<td class="num" style="color:' + urgColor + ';font-weight:' + (item.elapsed >= 7 ? '700' : '400') + '">D+' + item.elapsed + '</td>';
       tHtml += '<td style="font-size:12px">' + esc(item.issueSummary) + '</td>';
@@ -3348,11 +3353,20 @@ function openCommMailDraft(corpName, commType) {
   var content = document.getElementById('commMailContent');
   if (!modal || !content) return;
 
+  var _ccCol = { '신한카드': { bg: '#0046ff22', fg: '#0046ff' }, '비씨카드': { bg: '#e6001922', fg: '#e60019' }, '롯데카드': { bg: '#ed180822', fg: '#ed1808' } };
+  var _ccS = _ccCol[cardCo] || { bg: 'var(--bg)', fg: 'var(--text-muted)' };
   var h = '';
   h += '<h3 style="font-size:15px;font-weight:700;color:var(--text-strong);margin-bottom:16px">메일 초안 — ' + esc(commType) + '</h3>';
-  h += '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px;margin-bottom:16px;align-items:center">';
-  h += '<span style="color:var(--text-muted)">수신자</span><strong style="color:var(--text-strong)">' + esc(toName) + ' (' + esc(cardCo || '-') + ')</strong>';
-  h += '<span style="color:var(--text-muted)">법인명</span><strong>' + esc(corpName) + '</strong>';
+  h += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">';
+  h += '<div style="display:flex;align-items:center;gap:10px">';
+  h += '<span style="color:var(--text-muted);font-size:12px">수신:</span>';
+  h += '<strong style="color:var(--text-strong)">' + esc(toName) + '</strong>';
+  if (cardCo) h += '<span style="display:inline-block;padding:2px 10px;border-radius:4px;font-size:11px;font-weight:600;background:' + _ccS.bg + ';color:' + _ccS.fg + '">' + esc(cardCo) + '</span>';
+  h += '</div>';
+  h += '<div style="display:flex;align-items:center;gap:10px">';
+  h += '<strong style="color:var(--text-strong)">' + esc(corpName) + '</strong>';
+  h += '<span style="color:var(--text-muted);font-size:12px">D+' + elapsed + '</span>';
+  h += '</div>';
   h += '</div>';
   h += '<div style="margin-bottom:12px">';
   h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">제목</div>';
