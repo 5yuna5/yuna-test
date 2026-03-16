@@ -203,6 +203,16 @@ async function fetchRecordData() {
         AND ca.corporationName IS NOT NULL AND ca.corporationName != ''
       GROUP BY 1
     ),
+    -- 보증금/특별심사 구분 (한도 0원 고객)
+    special_review_check AS (
+      SELECT o.brn_key,
+        MAX(CASE WHEN a.gowid_status = '고위드 특별심사' THEN 1 ELSE 0 END) AS is_special
+      FROM \`gowid-prd.mart_limit_application.application_status\` a
+      JOIN corp_ods o ON a.corp_id = o.corp_idx
+      WHERE a.gowid_approved_limit_amount = 0
+        AND a.gowid_rejected_at IS NULL
+      GROUP BY o.brn_key
+    ),
     base AS (
       SELECT
         FORMAT_DATE('%Y-%m-%d', c.cohort_date) AS submit_date,
@@ -286,14 +296,12 @@ async function fetchRecordData() {
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
         CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
-        -- CRM 최근 소통
-        crm2.crm_date AS crm_date,
-        crm2.txt AS crm_txt,
-        crm2.src AS crm_src,
+        -- 보증금/특별심사 구분
+        IFNULL(src2.is_special, 0) AS is_special,
         1 AS no_app
       FROM \`gowid-prd.ods_stream_gowid.Corp\` c
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` dim ON dim.corp_id = c.idx
-      LEFT JOIN crm_latest crm2 ON crm2.brn_key = REPLACE(c.resCompanyIdentityNo, '-', '')
+      LEFT JOIN special_review_check src2 ON src2.brn_key = REPLACE(c.resCompanyIdentityNo, '-', '')
       -- 카드 발급 정보 집계
       LEFT JOIN (
         SELECT ci.idxCorp,
@@ -346,7 +354,8 @@ async function fetchRecordData() {
     id: r.issued_date || null,
     cc: r.card_company || '',
     na: Number(r.no_app || 0),
-    crm: r.crm_date ? (r.crm_date + ' ' + (r.crm_txt || '').trim()) : '',
+    lzs: Number(r.is_special || 0),
+    crm: '',
   }));
 }
 
@@ -380,6 +389,17 @@ async function main() {
 
   console.log(`\n📊 조회 완료:`);
   console.log(`  RECORD_DATA: ${records.length}건`);
+
+  // Slack 소통 이력 매칭 (최근 90일 내 미완료 건만)
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const activeNames = [...new Set(records.filter(r => !r.fs && r.d >= cutoffStr).map(r => r.c).filter(Boolean))];
+  console.log(`  Slack 검색 대상: ${activeNames.length}건 (최근 90일 미완료 법인)`);
+  const slackComm = await fetchSlackComm(activeNames);
+  for (const r of records) {
+    r.crm = slackComm.get(r.c) || '';
+  }
+  console.log(`  Slack 소통 매칭: ${records.filter(r => r.crm).length}건`);
 
   console.log('\n📝 HTML 파일 업데이트 중...');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
