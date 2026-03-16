@@ -177,9 +177,23 @@ async function fetchDetailData() {
       FORMAT_DATETIME('%Y-%m-%d', a.card_co_rejected_at) AS card_rejected_date,
       a.total_review_duration AS total_days,
       FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
-      IFNULL(c.assigned_am, '') AS assigned_am
+      IFNULL(c.assigned_am, '') AS assigned_am,
+      crm.crm_date,
+      crm.crm_txt
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    LEFT JOIN (
+      SELECT ct.idx_corp_id AS corp_id,
+        FORMAT_DATETIME('%m/%d', MAX(ct.contacted_at)) AS crm_date,
+        ARRAY_AGG(
+          LEFT(REGEXP_REPLACE(ct.content, r'\\n', ' '), 80)
+          ORDER BY ct.contacted_at DESC LIMIT 1
+        )[OFFSET(0)] AS crm_txt
+      FROM \`gowid-prd.ods_stream_crm.contact\` ct
+      WHERE ct.is_deleted = 0
+        AND ct.contacted_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
+      GROUP BY ct.idx_corp_id
+    ) crm ON crm.corp_id = a.corp_id
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -205,6 +219,7 @@ async function fetchDetailData() {
     card_reject: r.card_rejected_date,
     total: Number(r.total_days || 0),
     am: r.assigned_am || '',
+    crm: r.crm_date ? (r.crm_date + ' ' + (r.crm_txt || '').trim()) : '',
   }));
 }
 
@@ -273,9 +288,23 @@ async function fetchRecordData() {
       CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
       CASE WHEN a.is_net_gowid_review_duration_over THEN 1 ELSE 0 END AS go,
       CASE WHEN a.is_application_submit_duration_over THEN 1 ELSE 0 END AS so,
-      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co
+      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co,
+      crm2.crm_date AS crm_date,
+      crm2.crm_txt AS crm_txt
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    LEFT JOIN (
+      SELECT ct.idx_corp_id AS corp_id,
+        FORMAT_DATETIME('%m/%d', MAX(ct.contacted_at)) AS crm_date,
+        ARRAY_AGG(
+          LEFT(REGEXP_REPLACE(ct.content, r'\\n', ' '), 80)
+          ORDER BY ct.contacted_at DESC LIMIT 1
+        )[OFFSET(0)] AS crm_txt
+      FROM \`gowid-prd.ods_stream_crm.contact\` ct
+      WHERE ct.is_deleted = 0
+        AND ct.contacted_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
+      GROUP BY ct.idx_corp_id
+    ) crm2 ON crm2.corp_id = a.corp_id
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -298,6 +327,7 @@ async function fetchRecordData() {
     sd: r.sd != null ? Number(r.sd) : null,
     done: Number(r.done),
     lo: Number(r.lo), go: Number(r.go), so: Number(r.so), co: Number(r.co),
+    crm: r.crm_date ? (r.crm_date + ' ' + (r.crm_txt || '').trim()) : '',
   }));
 }
 
