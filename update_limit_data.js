@@ -10,13 +10,89 @@
 const { BigQuery } = require('@google-cloud/bigquery');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 const HTML_FILE = path.join(__dirname, 'limit_increase_dashboard.html');
 const KEYFILE = path.join(process.env.HOME, '.claude/credentials/gowid-prd-bigquery-key.json');
 const PROJECT = 'gowid-prd';
 const LOCATION = 'asia-northeast3';
 
+// Slack 토큰
+const SLACK_USER_TOKEN = (() => {
+  try {
+    const envPath = path.join(__dirname, 'pm/context/card/operations/crm-slack-bot/.env');
+    const env = fs.readFileSync(envPath, 'utf8');
+    const m = env.match(/SLACK_USER_TOKEN=(.+)/);
+    return m ? m[1].trim() : '';
+  } catch { return ''; }
+})();
+// Slack: search.messages API로 전체 워크스페이스에서 회사명 검색
+
 const bq = new BigQuery({ projectId: PROJECT, keyFilename: KEYFILE, location: LOCATION });
+
+// ─── Slack 소통 이력 ───
+function slackGet(url, token) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { Authorization: `Bearer ${token}` } }, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+async function fetchSlackComm(companyNames) {
+  if (!SLACK_USER_TOKEN) {
+    console.log('  ⚠ Slack 토큰 없음 — 소통 이력 생략');
+    return new Map();
+  }
+  console.log('  [Slack] search.messages로 회사별 소통 이력 조회 중...');
+
+  const commMap = new Map();
+  let searched = 0;
+
+  for (const name of companyNames) {
+    if (!name || name.length < 2) continue;
+    const searchName = name.replace(/\(주\)|\(주 \)|주식회사 |주식회사|㈜/g, '').trim();
+    if (searchName.length < 3) continue;
+
+    try {
+      const q = encodeURIComponent(`"${searchName}"`);
+      const resp = await slackGet(
+        `https://slack.com/api/search.messages?query=${q}&count=1&sort=timestamp&sort_dir=desc`,
+        SLACK_USER_TOKEN
+      );
+      searched++;
+      if (resp.ok && resp.messages && resp.messages.matches && resp.messages.matches.length > 0) {
+        const m = resp.messages.matches[0];
+        const date = new Date(Number(m.ts) * 1000);
+        const dateStr = `${String(date.getMonth()+1).padStart(2,'0')}/${String(date.getDate()).padStart(2,'0')}`;
+        let txt = (m.text || '').replace(/\n/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+        if (txt.length > 100) {
+          const idx = txt.indexOf(searchName);
+          if (idx >= 0) {
+            const start = Math.max(0, idx - 20);
+            txt = txt.substring(start, start + 100);
+          } else {
+            txt = txt.substring(0, 100);
+          }
+        }
+        commMap.set(name, dateStr + ' ' + txt.trim());
+      }
+      if (searched % 20 === 0) {
+        console.log(`  [Slack] ${searched}건 검색, ${commMap.size}건 매칭...`);
+        await new Promise(r => setTimeout(r, 1000));
+      } else {
+        await new Promise(r => setTimeout(r, 50));
+      }
+    } catch (e) {
+      // 에러 시 해당 회사 건너뜀
+    }
+  }
+
+  console.log(`  [Slack] 총 ${searched}건 검색, ${commMap.size}건 매칭 완료`);
+  return commMap;
+}
 
 async function query(sql) {
   const [job] = await bq.createQueryJob({ query: sql, location: LOCATION });
@@ -177,23 +253,9 @@ async function fetchDetailData() {
       FORMAT_DATETIME('%Y-%m-%d', a.card_co_rejected_at) AS card_rejected_date,
       a.total_review_duration AS total_days,
       FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
-      IFNULL(c.assigned_am, '') AS assigned_am,
-      crm.crm_date,
-      crm.crm_txt
+      IFNULL(c.assigned_am, '') AS assigned_am
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
-    LEFT JOIN (
-      SELECT ct.idx_corp_id AS corp_id,
-        FORMAT_DATETIME('%m/%d', MAX(ct.contacted_at)) AS crm_date,
-        ARRAY_AGG(
-          LEFT(REGEXP_REPLACE(ct.content, r'\\n', ' '), 80)
-          ORDER BY ct.contacted_at DESC LIMIT 1
-        )[OFFSET(0)] AS crm_txt
-      FROM \`gowid-prd.ods_stream_crm.contact\` ct
-      WHERE ct.is_deleted = 0
-        AND ct.contacted_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
-      GROUP BY ct.idx_corp_id
-    ) crm ON crm.corp_id = a.corp_id
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -219,7 +281,7 @@ async function fetchDetailData() {
     card_reject: r.card_rejected_date,
     total: Number(r.total_days || 0),
     am: r.assigned_am || '',
-    crm: r.crm_date ? (r.crm_date + ' ' + (r.crm_txt || '').trim()) : '',
+    crm: '',
   }));
 }
 
@@ -288,23 +350,9 @@ async function fetchRecordData() {
       CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
       CASE WHEN a.is_net_gowid_review_duration_over THEN 1 ELSE 0 END AS go,
       CASE WHEN a.is_application_submit_duration_over THEN 1 ELSE 0 END AS so,
-      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co,
-      crm2.crm_date AS crm_date,
-      crm2.crm_txt AS crm_txt
+      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
-    LEFT JOIN (
-      SELECT ct.idx_corp_id AS corp_id,
-        FORMAT_DATETIME('%m/%d', MAX(ct.contacted_at)) AS crm_date,
-        ARRAY_AGG(
-          LEFT(REGEXP_REPLACE(ct.content, r'\\n', ' '), 80)
-          ORDER BY ct.contacted_at DESC LIMIT 1
-        )[OFFSET(0)] AS crm_txt
-      FROM \`gowid-prd.ods_stream_crm.contact\` ct
-      WHERE ct.is_deleted = 0
-        AND ct.contacted_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
-      GROUP BY ct.idx_corp_id
-    ) crm2 ON crm2.corp_id = a.corp_id
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-06-01'
     ORDER BY a.initialized_at DESC
@@ -327,7 +375,7 @@ async function fetchRecordData() {
     sd: r.sd != null ? Number(r.sd) : null,
     done: Number(r.done),
     lo: Number(r.lo), go: Number(r.go), so: Number(r.so), co: Number(r.co),
-    crm: r.crm_date ? (r.crm_date + ' ' + (r.crm_txt || '').trim()) : '',
+    crm: '',
   }));
 }
 
@@ -371,6 +419,20 @@ async function main() {
   console.log(`  DETAIL_DATA: ${detail.length}건 (전체 기간)`);
   console.log(`  CARD_CO_DATA: ${cardCo.length}개 카드사×유형`);
   console.log(`  RECORD_DATA: ${records.length}건`);
+
+  // Slack 소통 이력 매칭 (진행중인 건만 — 완료/부결건 제외하여 API 호출 최소화)
+  const activeCorpNames = [...new Set([
+    ...detail.filter(r => !r.done && !r.reject && !r.card_reject).map(r => r.corp),
+    ...records.filter(r => r.ip).map(r => r.c),
+  ].filter(Boolean))];
+  console.log(`  Slack 검색 대상: ${activeCorpNames.length}건 (진행중 법인)`);
+  const slackComm = await fetchSlackComm(activeCorpNames);
+  for (const r of detail) {
+    r.crm = slackComm.get(r.corp) || '';
+  }
+  for (const r of records) {
+    r.crm = slackComm.get(r.c) || '';
+  }
 
   console.log('\n📝 HTML 파일 업데이트 중...');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
