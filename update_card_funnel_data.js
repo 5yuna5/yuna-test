@@ -169,32 +169,58 @@ async function fetchRecordData() {
       LEFT JOIN app_name_map acn USING (brn_key)
     ),
     -- CardApplication 없이 카드 발급된 법인 (다른 온보딩 경로)
+    -- Metabase #4299 로직: Corp.createdAt(회원가입일) 기준 코호트, CardApplication 없는 법인만
     extra_issued AS (
       SELECT
-        FORMAT_DATE('%Y-%m-%d', DATE(MIN(ci.issuedAt))) AS submit_date,
+        FORMAT_DATE('%Y-%m-%d', DATE(c.createdAt)) AS submit_date,
         REPLACE(c.resCompanyIdentityNo, '-', '') AS brn_key,
         COALESCE(c.resCompanyNm, REPLACE(c.resCompanyIdentityNo, '-', '')) AS corp_name,
         IFNULL(dim.assigned_am, '') AS am,
-        0 AS sub, 0 AS apr, 0 AS sig, 0 AS ls, 0 AS lp, 0 AS lr,
-        0 AS lnz, 0 AS lz,
-        0 AS ci, 0 AS ca, 1 AS cd,
+        0 AS sub, 0 AS apr,
+        1 AS sig,
+        CASE WHEN la_check.has_limit IS NOT NULL THEN 1 ELSE 0 END AS ls,
+        CASE WHEN la_check.has_progress IS NOT NULL THEN 1 ELSE 0 END AS lp,
+        CASE WHEN la_check.has_result IS NOT NULL THEN 1 ELSE 0 END AS lr,
+        CASE WHEN la_check.limit_amount IS NOT NULL AND la_check.limit_amount <> 0 THEN 1 ELSE 0 END AS lnz,
+        CASE WHEN la_check.limit_amount IS NOT NULL AND la_check.limit_amount = 0 THEN 1 ELSE 0 END AS lz,
+        CASE WHEN ci_agg.ci_created IS NOT NULL THEN 1 ELSE 0 END AS ci,
+        CASE WHEN ci_agg.ci_applied IS NOT NULL THEN 1 ELSE 0 END AS ca,
+        CASE WHEN ci_agg.ci_issued IS NOT NULL THEN 1 ELSE 0 END AS cd,
         CASE WHEN dim.first_card_spend_at IS NOT NULL THEN 1 ELSE 0 END AS fs,
-        FORMAT_DATE('%Y-%m-%d', DATE(MIN(ci.issuedAt))) AS issued_date,
+        FORMAT_DATE('%Y-%m-%d', DATE(ci_agg.ci_issued)) AS issued_date,
         CAST(NULL AS INT64) AS d1, CAST(NULL AS INT64) AS d2,
         CAST(NULL AS INT64) AS d3, CAST(NULL AS INT64) AS d4,
         CAST(NULL AS INT64) AS dt, CAST(NULL AS INT64) AS d5,
         1 AS no_app
       FROM \`gowid-prd.ods_stream_gowid.Corp\` c
-      JOIN \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci ON ci.idxCorp = c.idx
       LEFT JOIN \`gowid-prd.dw_dimension.corporation\` dim ON dim.corp_id = c.idx
+      -- 카드 발급 정보 집계
+      LEFT JOIN (
+        SELECT ci.idxCorp,
+          MIN(ci.createdAt) AS ci_created,
+          MIN(ci.appliedAt) AS ci_applied,
+          MIN(ci.issuedAt) AS ci_issued
+        FROM \`gowid-prd.ods_stream_gowid.CardIssuanceInfo\` ci
+        WHERE ci.issuedAt IS NOT NULL
+        GROUP BY ci.idxCorp
+      ) ci_agg ON ci_agg.idxCorp = c.idx
+      -- 한도심사 정보
+      LEFT JOIN (
+        SELECT la.idxCorp,
+          MIN(IF(la.status='INIT', la.updatedAt, NULL)) AS has_limit,
+          MIN(IF(la.status<>'INIT', la.updatedAt, NULL)) AS has_progress,
+          MIN(IF(la.totalLimitAmount IS NOT NULL, la.updatedAt, NULL)) AS has_result,
+          MIN(la.totalLimitAmount) AS limit_amount
+        FROM \`gowid-prd.ods_stream_gowid.LimitApplication\` la
+        WHERE la.applicationType = 'JOIN' AND la.isNewCorp = 1
+        GROUP BY la.idxCorp
+      ) la_check ON la_check.idxCorp = c.idx
       WHERE c.resCompanyIdentityNo IS NOT NULL
-        AND ci.issuedAt IS NOT NULL
-        AND DATE(ci.issuedAt) >= DATE '2025-01-01'
+        AND DATE(c.createdAt) >= DATE '2026-01-01'
         AND REPLACE(c.resCompanyIdentityNo, '-', '') NOT IN (
           SELECT brn_key FROM cohort
         )
-      GROUP BY c.resCompanyIdentityNo, c.resCompanyNm, dim.assigned_am,
-               dim.first_card_spend_at
+        AND ci_agg.ci_issued IS NOT NULL
     )
     SELECT *, 0 AS no_app FROM base
     UNION ALL
