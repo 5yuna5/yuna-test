@@ -1560,13 +1560,10 @@ function movingAverage(arr, window) {
 let selectedMonths = new Set();
 
 function initMonthSelect() {
-  const allMonths = [];
-  const now = new Date();
-  const d = new Date(2025, 0, 1);
-  while (d <= now) {
-    allMonths.push(d.toISOString().slice(0, 7));
-    d.setMonth(d.getMonth() + 1);
-  }
+  // 실제 데이터가 있는 월만 버튼으로 생성
+  const monthSet = new Set();
+  RECORD_DATA.forEach(function(r) { if (r.d) monthSet.add(r.d.slice(0, 7)); });
+  const allMonths = Array.from(monthSet).sort();
   const container = document.getElementById('monthButtons');
   container.innerHTML = '';
   allMonths.forEach(function(m, idx) {

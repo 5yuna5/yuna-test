@@ -683,7 +683,7 @@ function applyFilter() {
   buildSLA(sla);
   buildAMTable(records);
   buildDetailTable(records);
-  buildCardCoComm(records);
+  buildCardCoComm();
 
   // URL parameter persistence
   var params = new URLSearchParams();
@@ -2116,12 +2116,14 @@ var COMM_MAIL_TEMPLATES = {
 // ─── CARD CO COMM SECTION ───
 var commActiveTab = '전체';
 
-function buildCardCoComm(records) {
+function buildCardCoComm() {
+  // 카드사 커뮤니케이션은 날짜 필터와 무관하게 전체 발급대기 건을 표시
+  var allRecords = RECORD_DATA;
   var today = new Date();
   function daysDiff(d) { if (!d) return 0; return Math.floor((today - new Date(d)) / 86400000); }
 
   var items = [];
-  records.forEach(function(r) {
+  allRecords.forEach(function(r) {
     if (!r.d) return;
 
     // Only include records where card application was submitted (ca=1) but card not yet issued (cd=0)
@@ -2241,7 +2243,7 @@ function commSwitchTab(tab, btn) {
   }
   // Re-render with current filtered records
   var records = getFilteredRecords();
-  buildCardCoComm(records);
+  buildCardCoComm();
 }
 
 function openCommMailDraft(corpName, commType, elapsed, date, am, cardCo) {
