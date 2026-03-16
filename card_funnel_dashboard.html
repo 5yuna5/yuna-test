@@ -381,7 +381,7 @@
 
 <header>
   <div class="header-left">
-    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.2</span></h1>
+    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.3</span></h1>
     <p>mart_limit_application.card_application_funnel | 업데이트: 2026-03-16 | <span id="freshness" style="font-weight:500"></span></p>
   </div>
   <div class="header-right">
@@ -2503,6 +2503,26 @@ document.addEventListener('keydown', function(e) {
   <div class="modal" style="max-width:560px;max-height:80vh;overflow-y:auto">
     <h3>변경 이력</h3>
     <div style="font-size:12px;color:var(--text)">
+      <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.3</strong> <span style="color:var(--text-muted)">2026-03-16</span>
+        <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
+          <li><strong>[버그]</strong> 보증금/특별심사 상태 색상 덮어쓰기 수정 — 한도0원 하위 5개 분기 색상이 모두 빨간색이던 문제</li>
+          <li><strong>[버그]</strong> 상태 뱃지(statusBadgeClass)에 특별심사/보증금 신청/확인/승인 매핑 추가</li>
+          <li><strong>[버그]</strong> 카드사 커뮤니케이션 테이블 렌더링 에러 수정 — undefined 변수 참조로 행이 안 나오던 문제</li>
+          <li><strong>[버그]</strong> MoM 전월 0%일 때 변화량 미표시 수정</li>
+          <li><strong>[보안]</strong> XSS 방지: inline onclick → data attribute + event delegation 전환</li>
+          <li><strong>[보안]</strong> CSV export 후 ObjectURL 메모리 누수 수정</li>
+          <li><strong>[개선]</strong> 카드사 커뮤니케이션: 날짜 필터 무관하게 전체 발급대기 건 표시</li>
+          <li><strong>[개선]</strong> 보증금/특별심사 ODS 기반 V2: DepositApplication, ManualLimitApplication 직접 조회</li>
+          <li><strong>[개선]</strong> SLA 4개 항목으로 정리 + 임계치 색상 표시 (초록/노랑/빨강)</li>
+          <li><strong>[개선]</strong> 월별 트렌드 필터: 개별 월 토글, 전체 선택/해제, 최근 3·6개월</li>
+          <li><strong>[UX]</strong> quickFilter 버튼 active 상태 표시</li>
+          <li><strong>[UX]</strong> status badge 반투명 스타일로 통일</li>
+          <li><strong>[UX]</strong> 오늘 할 일 첫 카테고리 자동 펼침</li>
+          <li><strong>[UX]</strong> 섹션 타이틀 좌측 accent 보더, 다크모드 호환 알림 배너</li>
+          <li><strong>[코드]</strong> 중복 헬퍼 함수 통합 (approvalDate/signupDate/limitResultDate/daysSince)</li>
+          <li><strong>[코드]</strong> 미사용 함수 제거 (onMonthSelectChange), unreachable 분기 정리</li>
+        </ul>
+      </div>
       <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.2</strong> <span style="color:var(--text-muted)">2026-03-13</span>
         <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
           <li>KPI 6카드 레이아웃 (한도상향 대시보드 통일)</li>
