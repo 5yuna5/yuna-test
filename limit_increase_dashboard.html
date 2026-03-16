@@ -658,6 +658,23 @@
     </div>
   </div>
 
+  <!-- ── 카드사 커뮤니케이션 현황 ── -->
+  <div class="section" id="cardCoCommSection">
+    <div class="card">
+      <div class="collapse-toggle open" onclick="toggleCollapse(this)" style="display:flex;align-items:center;gap:6px;margin-bottom:0">
+        <span class="arrow">▶</span>
+        <span class="section-title" style="margin-bottom:0">카드사 커뮤니케이션 현황</span>
+        <span class="badge" id="commBadge" style="margin-left:4px">0건</span>
+      </div>
+      <div class="collapse-body open" id="commBody" style="margin-top:16px">
+        <div id="commTabs" class="tab-bar" style="flex-wrap:wrap;gap:4px;margin-bottom:16px"></div>
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+          <table class="data-table" id="commTable" style="width:100%"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <footer>GoWid 한도상향/카드사추가 퍼널 대시보드 | 데이터: BigQuery mart_limit_application</footer>
@@ -2919,6 +2936,7 @@ function buildAll(filtered) {
   buildAMTable();
   buildInsights(data, slaData);
   buildDetailTable();
+  buildCardCoComm();
 }
 
 function rebuildCharts() {
@@ -3113,6 +3131,273 @@ if (window.location.search.includes('embedded=1')) {
   setInterval(() => { if (typeof applyFilter === 'function') applyFilter(); }, 30 * 60 * 1000);
 }
 </script>
+
+<script>
+// ─── 카드사 커뮤니케이션 현황 ───
+var COMM_MAIL_TEMPLATES = {
+  '심사 현황 확인': {
+    subject: '[고위드] {corp} 한도심사 진행 현황 확인 요청',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도심사 진행 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 신청 유형: {type}\n- 신청일: {date}\n- 경과일: D+{elapsed}\n\n심사 진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
+  },
+  '카드사 접수 확인': {
+    subject: '[고위드] {corp} 카드사 접수 확인 요청',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 신청서를 제출하였으나 카드사 접수가 확인되지 않아 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 신청 유형: {type}\n- 제출일: {date}\n- 경과일: D+{elapsed}\n\n접수 진행 상황 확인 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
+  },
+  '추가서류 제출': {
+    subject: '[고위드] {corp} 추가 서류 송부',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 추가 서류를 송부드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 제출 서류: [재무제표 / 부가세 증명원 / 기타]\n\n확인 후 심사 진행 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
+  },
+  '전문 재발송 요청': {
+    subject: '[고위드] {corp} 전문 재발송 요청',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 기존 심사건 취소 후 전문 재발송을 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 변경 한도: [금액 입력]\n- 사유: [사유 입력]\n\n기존 심사건 취소 처리 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
+  },
+  '승인 후 처리 확인': {
+    subject: '[고위드] {corp} 승인 후 처리 현황 확인',
+    body: '안녕하세요, 고위드 카드사업운영부입니다.\n\n아래 법인의 한도 승인 후 후속 처리 현황 확인 요청드립니다.\n\n- 법인명: {corp}\n- 사업자등록번호: {brn}\n- 승인일: {date}\n- 경과일: D+{elapsed}\n\n진행 상황 공유 부탁드립니다.\n\n감사합니다.\n고위드 오유나 드림',
+    to: { '신한카드': '이상학 수석', '비씨카드': 'BC 담당자', '롯데카드': '롯데 담당자' }
+  }
+};
+
+var _commCurrentTab = '';
+
+function _commGetIssue(r) {
+  var elapsed = r.elapsed || 0;
+  var st = r.status || '';
+  // Determine funnel step from status
+  var f1 = r.gowid_st && r.gowid_st.indexOf('승인') >= 0 && !r.reject ? 1 : 0;
+  var f2 = r.submit ? 1 : 0;
+  var f3 = r.card_st && (r.card_st.indexOf('심사') >= 0 || r.card_st.indexOf('접수') >= 0 || r.done) ? 1 : 0;
+  // More reliable: use status string
+  if (st.indexOf('카드사 심사') >= 0) { f1=1; f2=1; f3=1; }
+  else if (st.indexOf('신청서 제출') >= 0) { f1=1; f2=1; f3=0; }
+  else if (st.indexOf('신청서 작성') >= 0 || st.indexOf('전자서명') >= 0) { f1=1; f2=0; f3=0; }
+  var commType = '';
+  var issueSummary = '';
+  if (f3 && !r.done) {
+    commType = '심사 현황 확인';
+    if (elapsed >= 14) issueSummary = '심사 장기 지연 (D+' + elapsed + ')';
+    else if (elapsed >= 7) issueSummary = '심사 진행중 — 현황 확인 필요';
+    else issueSummary = '심사 진행중';
+  } else if (f2 && !f3 && !r.done) {
+    commType = '카드사 접수 확인';
+    if (elapsed >= 7) issueSummary = '카드사 미접수 — 접수 확인 필요';
+    else issueSummary = '카드사 접수 대기';
+  } else if (f1 && !f2 && !r.done) {
+    commType = '신청서 제출 독촉';
+    issueSummary = '신청서 미제출';
+  } else if (r.done && !r.reject && !r.card_reject) {
+    commType = '승인 후 처리 확인';
+    issueSummary = '승인 후 처리 확인 필요';
+  }
+  return { commType: commType, issueSummary: issueSummary, f1: f1, f2: f2, f3: f3 };
+}
+
+function buildCardCoComm() {
+  var start = document.getElementById('filterStart').value;
+  var end = document.getElementById('filterEnd').value;
+  var am = getSelectedAM();
+  var cc = getSelectedCardCo__PATCHED();
+  var today = new Date();
+
+  // Filter DETAIL_DATA (same logic as buildDetailTable)
+  var rows = DETAIL_DATA.filter(function(r) {
+    return r.init && r.init >= start && r.init <= end;
+  });
+  if (am) rows = rows.filter(function(r) { return r.am === am; });
+  if (cc) rows = rows.filter(function(r) { return r.card_co === cc; });
+
+  // Only records that need card company comm: not fully rejected by gowid, not canceled
+  // Include: in f1+f2+f3 stages (card co side), or done but needs post-approval action
+  var items = [];
+  rows.forEach(function(r) {
+    if (r.reject) return; // gowid rejected — skip
+    if (r.card_reject) return; // card co rejected — skip
+    var info = _commGetIssue(r);
+    if (!info.commType) return;
+    // Skip if f1=1 but f2=0 (신청서 미제출 — customer side, not card co comm)
+    if (info.commType === '신청서 제출 독촉') return;
+    var elapsed = r.elapsed || 0;
+    var urgency = elapsed >= 14 ? 'urgent' : elapsed >= 7 ? 'warning' : 'normal';
+    var urgEmoji = elapsed >= 14 ? '🔴' : elapsed >= 7 ? '🟡' : '🟢';
+    // Determine tab label
+    var tabLabel = r.card_co || '';
+    var tabKey = '기타/미선택';
+    if (tabLabel === '신한카드') tabKey = '신한카드';
+    else if (tabLabel === '비씨카드') tabKey = '비씨카드';
+    else if (tabLabel === '롯데카드') tabKey = '롯데카드';
+    // Build mail info
+    var tmpl = COMM_MAIL_TEMPLATES[info.commType] || null;
+    var mailName = tmpl ? info.commType : '-';
+    var lastChange = r.submit || r.gowid || r.init || '-';
+    items.push({
+      r: r,
+      corp: r.corp || '(미상)',
+      card_co: r.card_co || '-',
+      type: r.type || '-',
+      init: r.init || '-',
+      elapsed: elapsed,
+      urgency: urgency,
+      urgEmoji: urgEmoji,
+      commType: info.commType,
+      issueSummary: info.issueSummary,
+      mailName: mailName,
+      lastChange: lastChange,
+      tabKey: tabKey,
+      am: r.am || '-',
+      status: r.status || '-'
+    });
+  });
+
+  // Sort by elapsed desc (most urgent first)
+  items.sort(function(a, b) { return b.elapsed - a.elapsed; });
+
+  // Update badge
+  document.getElementById('commBadge').textContent = items.length + '건';
+
+  // Determine tabs
+  var tabOrder = ['신한카드', '비씨카드', '롯데카드', '기타/미선택'];
+  var tabCounts = {};
+  tabOrder.forEach(function(t) { tabCounts[t] = 0; });
+  items.forEach(function(item) { tabCounts[item.tabKey] = (tabCounts[item.tabKey] || 0) + 1; });
+
+  // Default to first tab with items
+  if (!_commCurrentTab || tabCounts[_commCurrentTab] === 0) {
+    _commCurrentTab = '';
+    tabOrder.forEach(function(t) {
+      if (!_commCurrentTab && tabCounts[t] > 0) _commCurrentTab = t;
+    });
+    if (!_commCurrentTab) _commCurrentTab = tabOrder[0];
+  }
+
+  // Build tab bar
+  var tabHtml = '';
+  tabOrder.forEach(function(t) {
+    var cnt = tabCounts[t] || 0;
+    var isActive = _commCurrentTab === t;
+    tabHtml += '<button class="tab-btn' + (isActive ? ' active' : '') + '" onclick="_commCurrentTab=\'' + t + '\';buildCardCoComm()" style="font-size:11px;padding:4px 10px">';
+    tabHtml += esc(t) + ' <span style="font-size:10px;opacity:0.7">(' + cnt + ')</span></button>';
+  });
+  document.getElementById('commTabs').innerHTML = tabHtml;
+
+  // Filter to current tab
+  var visibleItems = items.filter(function(item) { return item.tabKey === _commCurrentTab; });
+
+  // Build table
+  var tHtml = '<thead><tr>';
+  tHtml += '<th style="width:36px">우선순위</th>';
+  tHtml += '<th>법인명</th>';
+  tHtml += '<th>진행현황</th>';
+  tHtml += '<th class="num">경과일</th>';
+  tHtml += '<th>이슈 요약</th>';
+  tHtml += '<th>필요 커뮤니케이션</th>';
+  tHtml += '<th>추천 메일</th>';
+  tHtml += '<th>마지막 상태변경</th>';
+  tHtml += '<th>액션</th>';
+  tHtml += '</tr></thead><tbody>';
+
+  if (visibleItems.length === 0) {
+    tHtml += '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px">이 카드사에 해당하는 커뮤니케이션 대상이 없습니다</td></tr>';
+  } else {
+    visibleItems.forEach(function(item) {
+      var urgColor = item.urgency === 'urgent' ? 'var(--accent)' : item.urgency === 'warning' ? 'var(--warning)' : 'var(--success)';
+      var corpSafe = item.corp.replace(/'/g, "\\'");
+      var commSafe = item.commType.replace(/'/g, "\\'");
+      tHtml += '<tr>';
+      tHtml += '<td style="text-align:center;font-size:16px">' + item.urgEmoji + '</td>';
+      tHtml += '<td style="font-weight:600;color:var(--primary);cursor:pointer" onclick="openCorpDetail(\'' + corpSafe + '\')">' + esc(item.corp) + '</td>';
+      tHtml += '<td>' + getStatusBadge(item.status) + '</td>';
+      tHtml += '<td class="num" style="color:' + urgColor + ';font-weight:' + (item.elapsed >= 7 ? '700' : '400') + '">D+' + item.elapsed + '</td>';
+      tHtml += '<td style="font-size:12px">' + esc(item.issueSummary) + '</td>';
+      tHtml += '<td style="font-size:12px;font-weight:600">' + esc(item.commType) + '</td>';
+      tHtml += '<td style="font-size:11px;color:var(--primary)">' + esc(item.mailName) + '</td>';
+      tHtml += '<td style="font-size:11px;color:var(--text-muted)">' + esc(item.lastChange) + '</td>';
+      tHtml += '<td><button class="tab-btn" style="font-size:11px;padding:3px 10px;white-space:nowrap" onclick="openCommMailDraft(\'' + corpSafe + '\',\'' + commSafe + '\')">메일 초안</button></td>';
+      tHtml += '</tr>';
+    });
+  }
+  tHtml += '</tbody>';
+  document.getElementById('commTable').innerHTML = tHtml;
+}
+
+function openCommMailDraft(corpName, commType) {
+  var r = DETAIL_DATA.find(function(d) { return d.corp === corpName; });
+  var tmpl = COMM_MAIL_TEMPLATES[commType];
+  if (!tmpl) return;
+  var cardCo = r ? (r.card_co || '') : '';
+  var brn = r ? (r.id ? r.id.split('-')[0] || '' : '') : '';
+  var typeStr = r ? (r.type || '-') : '-';
+  var elapsed = r ? (r.elapsed || 0) : 0;
+  var initDate = r ? (r.init || '-') : '-';
+  var toName = tmpl.to[cardCo] || (cardCo + ' 담당자') || '담당자';
+
+  function fillTpl(s) {
+    return s.replace(/\{corp\}/g, corpName)
+            .replace(/\{brn\}/g, brn)
+            .replace(/\{type\}/g, typeStr)
+            .replace(/\{date\}/g, initDate)
+            .replace(/\{elapsed\}/g, elapsed);
+  }
+  var subject = fillTpl(tmpl.subject);
+  var body = fillTpl(tmpl.body);
+
+  var modal = document.getElementById('commMailModal');
+  var content = document.getElementById('commMailContent');
+  if (!modal || !content) return;
+
+  var h = '';
+  h += '<h3 style="font-size:15px;font-weight:700;color:var(--text-strong);margin-bottom:16px">메일 초안 — ' + esc(commType) + '</h3>';
+  h += '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px;margin-bottom:16px;align-items:center">';
+  h += '<span style="color:var(--text-muted)">수신자</span><strong style="color:var(--text-strong)">' + esc(toName) + ' (' + esc(cardCo || '-') + ')</strong>';
+  h += '<span style="color:var(--text-muted)">법인명</span><strong>' + esc(corpName) + '</strong>';
+  h += '</div>';
+  h += '<div style="margin-bottom:12px">';
+  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">제목</div>';
+  h += '<div id="commSubjectDisplay" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:13px;font-weight:600;color:var(--text-strong)">' + esc(subject) + '</div>';
+  h += '</div>';
+  h += '<div style="margin-bottom:16px">';
+  h += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">본문</div>';
+  h += '<textarea id="commBodyTextarea" style="width:100%;height:280px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px;font-size:13px;color:var(--text);line-height:1.7;font-family:inherit;resize:vertical">' + esc(body) + '</textarea>';
+  h += '</div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  h += '<button class="tab-btn active" style="flex:1;min-width:120px;padding:8px 16px;font-size:13px" onclick="_commCopyToClipboard()">클립보드 복사</button>';
+  h += '<button class="tab-btn" style="flex:1;min-width:120px;padding:8px 16px;font-size:13px" onclick="_commOpenMailto(\'' + encodeURIComponent(subject).replace(/'/g,"\\'") + '\')">메일 앱으로 열기</button>';
+  h += '<button class="tab-btn" style="padding:8px 16px;font-size:13px" onclick="closeCommMailModal()">닫기</button>';
+  h += '</div>';
+  content.innerHTML = h;
+  modal.classList.add('active');
+}
+
+function _commCopyToClipboard() {
+  var subjectEl = document.getElementById('commSubjectDisplay');
+  var bodyEl = document.getElementById('commBodyTextarea');
+  if (!subjectEl || !bodyEl) return;
+  var text = '제목: ' + subjectEl.textContent + '\n\n' + bodyEl.value;
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.querySelector('#commMailContent .tab-btn.active');
+    if (btn) { var orig = btn.textContent; btn.textContent = '복사됨!'; setTimeout(function(){ btn.textContent = orig; }, 1500); }
+  }).catch(function() {
+    var ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  });
+}
+
+function _commOpenMailto(encodedSubject) {
+  var bodyEl = document.getElementById('commBodyTextarea');
+  var bodyText = bodyEl ? bodyEl.value : '';
+  var mailtoUrl = 'mailto:?subject=' + encodedSubject + '&body=' + encodeURIComponent(bodyText);
+  window.open(mailtoUrl, '_blank');
+}
+
+function closeCommMailModal() {
+  var modal = document.getElementById('commMailModal');
+  if (modal) modal.classList.remove('active');
+}
+</script>
+
 <!-- ── MAIL TEMPLATE MODAL ── -->
 <div class="modal-overlay" id="mailTemplateModal" onclick="if(event.target===this)closeMailTemplate()" style="z-index:2000">
   <div class="modal" style="max-width:640px;max-height:90vh;overflow-y:auto;padding:24px" id="mailTemplateContent">
@@ -3120,5 +3405,11 @@ if (window.location.search.includes('embedded=1')) {
 </div>
 <div class="side-panel-backdrop" id="sidePanelBackdrop" onclick="closeSidePanel()"></div>
 <div class="side-panel" id="sidePanel"></div>
+
+<!-- ── COMM MAIL MODAL ── -->
+<div class="modal-overlay" id="commMailModal" onclick="if(event.target===this)closeCommMailModal()" style="z-index:2100">
+  <div class="modal" style="max-width:640px;max-height:92vh;overflow-y:auto;padding:24px" id="commMailContent">
+  </div>
+</div>
 </body>
 </html>
