@@ -234,6 +234,11 @@
     }
     .tab-btn:hover { background: var(--primary-dim); color: var(--primary); }
     .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; box-shadow: 0 2px 8px rgba(59,130,246,0.25); }
+    .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+    .table-scroll { max-height: 600px; overflow-y: auto; border-radius: var(--radius-sm); }
+    .table-scroll::-webkit-scrollbar { width: 6px; }
+    .table-scroll::-webkit-scrollbar-track { background: var(--card); }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
     /* ── COLLAPSIBLE ── */
     .collapse-toggle {
@@ -309,6 +314,7 @@
       /* Funnel touch targets */
       .funnel-step { min-height: 36px; }
       /* Tab button touch targets */
+      .tab-bar { gap: 4px; flex-wrap: wrap; }
       .tab-btn { min-height: 36px; min-width: 44px; padding: 6px 12px; font-size: 12px; }
       /* Modal mobile sizing */
       .modal { max-width: 95vw !important; }
@@ -362,9 +368,15 @@
     .info-icon:hover .info-popup,
     .info-icon.active .info-popup { display: block; pointer-events: auto; }
     @media (max-width: 768px) { .info-icon .info-popup { left: auto; right: 0; max-width: 80vw; } }
-    .floating-nav { position:fixed; right:20px; top:50%; transform:translateY(-50%); z-index:90; background:var(--card); border:1px solid var(--border-strong); border-radius:var(--radius); padding:8px 4px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:2px; }
-    .floating-nav a { display:block; padding:6px 10px; font-size:10px; color:var(--text-muted); text-decoration:none; border-radius:4px; white-space:nowrap; transition:all 0.15s; }
-    .floating-nav a:hover { background:var(--primary-dim); color:var(--primary); }
+    /* ── FLOATING NAV (collapsible) ── */
+    .floating-nav { position:fixed; right:0; top:50%; transform:translateY(-50%); z-index:90; display:flex; align-items:center; }
+    .floating-nav-toggle { width:28px; height:48px; background:var(--card); border:1px solid var(--border-strong); border-right:none; border-radius:8px 0 0 8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--text-muted); box-shadow:-2px 0 8px rgba(0,0,0,0.08); transition:all 0.2s; }
+    .floating-nav-toggle:hover { color:var(--primary); background:var(--primary-dim); }
+    .floating-nav-menu { background:var(--card); border:1px solid var(--border-strong); border-right:none; border-radius:8px 0 0 8px; padding:8px 4px; box-shadow:-2px 0 12px rgba(0,0,0,0.1); display:flex; flex-direction:column; gap:2px; max-height:0; overflow:hidden; opacity:0; width:0; transition:max-height 0.3s ease, opacity 0.2s ease, width 0.2s ease, padding 0.2s ease; }
+    .floating-nav.open .floating-nav-menu { max-height:400px; opacity:1; width:auto; padding:8px 4px; }
+    .floating-nav.open .floating-nav-toggle { border-radius:0; border-left:none; }
+    .floating-nav-menu a { display:block; padding:6px 12px; font-size:11px; color:var(--text-muted); text-decoration:none; border-radius:4px; white-space:nowrap; transition:all 0.15s; }
+    .floating-nav-menu a:hover { background:var(--primary-dim); color:var(--primary); }
     @media (max-width:768px) { .floating-nav { display:none; } }
   </style>
 </head>
@@ -385,7 +397,7 @@
 
 <header>
   <div class="header-left">
-    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.4</span></h1>
+    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.5</span></h1>
     <p>mart_limit_application.card_application_funnel | 업데이트: 2026-03-16 | <span id="freshness" style="font-weight:500"></span></p>
   </div>
   <div class="header-right">
@@ -513,9 +525,20 @@
       <button onclick="event.stopPropagation();exportDetailCSV()" class="update-btn" style="font-size:11px;padding:4px 12px">CSV 내보내기</button>
     </div>
     <div class="collapse-body" id="detailTableWrap">
-      <div class="card" style="overflow-x:auto">
-        <table class="data-table" id="detailTable"></table>
+    <div class="tab-bar" style="flex-wrap:wrap;gap:4px">
+      <span style="font-size:11px;color:var(--text-muted);margin-right:4px">상태</span>
+      <button class="tab-btn detail-status active" onclick="filterDetail('all', this)">전체</button>
+      <button class="tab-btn detail-status" onclick="filterDetail('action', this)">조치 필요</button>
+      <button class="tab-btn detail-status" onclick="filterDetail('urgent', this)">🔴긴급</button>
+      <button class="tab-btn detail-status" onclick="filterDetail('warning', this)">🟡주의</button>
+      <button class="tab-btn detail-status" onclick="filterDetail('done', this)">완료</button>
+      <input type="text" id="detailSearchInput" placeholder="법인명 검색..." oninput="filterDetailBySearch(this.value)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;width:180px">
+    </div>
+    <div class="card">
+      <div class="table-scroll">
+        <table class="data-table" id="detailTableInner"></table>
       </div>
+    </div>
     </div>
   </div>
 
@@ -526,6 +549,7 @@
         <span class="arrow">▶</span>
         <span class="section-title" style="margin-bottom:0">카드사 커뮤니케이션 현황</span>
         <span id="commBadge" style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;background:var(--primary-dim);color:var(--primary);margin-left:4px">0건</span>
+        <span id="closureToggle" style="font-size:11px;margin-left:12px"></span>
       </div>
       <div class="collapse-body open" id="commBody" style="margin-top:16px">
         <div id="commTabs" style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap"></div>
@@ -1004,27 +1028,27 @@ function buildKPIs(t, sla) {
   const avgSla = (sla && sla.dt !== null) ? sla.dt : null;
 
   document.getElementById('kpiGrid').innerHTML = `
-    <div class="kpi-card">
+    <div class="kpi-card" style="cursor:pointer" onclick="scrollToDetailFiltered('all')">
       <div class="kpi-label">총 신청</div>
       <div class="kpi-value primary">${isIssuedMode ? '-' : t.sub.toLocaleString()}</div>
       <div class="kpi-sub">${isIssuedMode ? '(발급일 기준)' : '도입신청서 접수'}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" style="cursor:pointer" onclick="scrollToDetailFiltered('done')">
       <div class="kpi-label">발급 완료</div>
       <div class="kpi-value success">${t.cd.toLocaleString()}</div>
       <div class="kpi-sub">${isIssuedMode ? '발급일 기준' : convRate + '% 전환율'}</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" style="cursor:pointer" onclick="scrollToDetailFiltered('lz')">
       <div class="kpi-label">한도 0원</div>
       <div class="kpi-value accent">${t.lz.toLocaleString()}</div>
       <div class="kpi-sub">${pct(t.lz, t.lr)}% (한도산출 대비)</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card" style="cursor:pointer" onclick="scrollToDetailFiltered('nosignup')">
       <div class="kpi-label">미가입 (승인 후)</div>
       <div class="kpi-value${notSignedUp > 0 ? ' warning' : ''}">${notSignedUp < 0 ? 0 : notSignedUp}</div>
       <div class="kpi-sub">승인 후 미가입</div>
     </div>
-    <div class="kpi-card" style="position:relative">
+    <div class="kpi-card" style="cursor:pointer;position:relative" onclick="scrollToDetailFiltered('inprogress')">
       <div class="kpi-label">진행중 <span class="info-icon" title="총 신청 중 첫사용 완료 및 한도 0원(조치 완료)을 제외한 건">?<span class="info-popup"><strong>미종결 건 정의:</strong><br>총 신청 건 중 아직 최종 완료(첫사용) 또는 이탈(한도0원)에 도달하지 않은 진행 중인 건수입니다.</span></span></div>
       <div class="kpi-value warning">${inProgress}</div>
       <div class="kpi-sub">미종결 건</div>
@@ -1958,7 +1982,7 @@ function buildDetailTable(records) {
   }
 
   if (records.length === 0) {
-    document.getElementById('detailTableWrap').innerHTML = '<div class="card"><div style="padding:16px;text-align:center;color:var(--text-muted)">데이터 없음</div></div>';
+    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px">데이터 없음</td></tr></tbody>';
     return;
   }
 
@@ -1984,37 +2008,26 @@ function buildDetailTable(records) {
     });
   }
 
-  // Filter buttons
-  var filterHtml = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">';
-  filterHtml += '<button class="tab-btn active" onclick="filterDetail(\'all\',this)">\uC804\uCCB4</button>';
-  filterHtml += '<button class="tab-btn" onclick="filterDetail(\'action\',this)">\uC870\uCE58 \uD544\uC694</button>';
-  filterHtml += '<button class="tab-btn" onclick="filterDetail(\'urgent\',this)">\uD83D\uDD34 \uAE34\uAE09</button>';
-  filterHtml += '<button class="tab-btn" onclick="filterDetail(\'warning\',this)">\uD83D\uDFE1 \uC8FC\uC758</button>';
-  filterHtml += '<button class="tab-btn" onclick="filterDetail(\'done\',this)">\uC644\uB8CC</button>';
-  filterHtml += '<input type="text" id="detailSearchInput" placeholder="법인명 검색..." oninput="filterDetailBySearch(this.value)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;width:180px">';
-  filterHtml += '</div>';
-
-  var html = filterHtml;
-  html += '<div style="overflow-x:auto"><table class="data-table" id="detailTableInner">';
-  html += '<thead><tr>';
-  html += '<th onclick="toggleDetailSort(\'date\')" style="cursor:pointer">\uC2E0\uCCAD\uC77C <span id="sortArrowDate">\u2195</span></th><th>\uBC95\uC778\uBA85</th><th>\uB2F4\uB2F9 AM</th><th>\uD604\uC7AC\uB2E8\uACC4</th>';
-  html += '<th onclick="toggleDetailSort(\'elapsed\')" style="cursor:pointer">\uACBD\uACFC\uC77C <span id="sortArrowElapsed">\u2195</span></th><th>\uAE34\uAE09\uB3C4</th><th>\uD544\uC694 \uBA54\uC77C</th><th>\uB2E4\uC74C \uC561\uC158</th><th>\uCD5C\uADFC \uC18C\uD1B5</th>';
+  var html = '<thead><tr>';
+  html += '<th>긴급도</th>';
+  html += '<th onclick="toggleDetailSort(\'date\')" style="cursor:pointer">신청일 <span id="sortArrowDate">⇕</span></th><th>법인명</th><th>담당 AM</th><th>현재단계</th>';
+  html += '<th onclick="toggleDetailSort(\'elapsed\')" style="cursor:pointer">경과일 <span id="sortArrowElapsed">⇕</span></th><th>필요 메일</th><th>다음 액션</th><th>최근 소통</th>';
   html += '</tr></thead><tbody>';
 
   sortedRecords.forEach(function(r) {
-    var status = '', nextAction = '', mailType = '-', elapsed = 0, urgIcon = '\uD83D\uDFE2';
+    var status = '', nextAction = '', mailType = '-', elapsed = 0, urgIcon = '🟢', urgLabel = '정상';
     var urgClass = 'normal';
 
     if (r.fs) {
-      status = '\uC644\uB8CC'; nextAction = '-';
+      status = '완료'; nextAction = '-';
       elapsed = r.dt || 0;
     } else if (r.cd) {
-      status = '\uBC1C\uAE09\uC644\uB8CC\xB7\uBBF8\uC0AC\uC6A9';
+      status = '발급완료·미사용';
       elapsed = r.id ? daysSince(r.id) : 0;
-      if (elapsed >= 90) { mailType = '\uC774\uD0C8 \uC704\uD5D8 \uC54C\uB9BC [D+90]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 30) { mailType = '\uC7AC\uB3C5\uB824 \uBA54\uC77C [D+30]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 7) { mailType = '\uD15C\uD50C\uB9BF#4 \uCCAB\uC0AC\uC6A9 \uB3C5\uB824 [D+7]'; urgIcon = '\uD83D\uDFE2'; }
-      nextAction = '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824 \uC5F0\uB77D';
+      if (elapsed >= 90) { mailType = '이탈 위험 알림 [D+90]'; urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; }
+      else if (elapsed >= 30) { mailType = '재독려 메일 [D+30]'; urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
+      else if (elapsed >= 7) { mailType = '템플릿#4 첫사용 독려 [D+7]'; urgIcon = '🟢'; urgLabel = '정상'; }
+      nextAction = '첫사용 독려 연락';
     } else if (r.lz) {
       if (r.sa) { status = '특별심사 승인'; nextAction = '승인 한도 기반 카드 발급 진행'; }
       else if (r.sr) { status = '특별심사'; nextAction = 'Risk팀 특별심사 결과 대기'; }
@@ -2023,62 +2036,68 @@ function buildDetailTable(records) {
       else { status = '한도0원'; nextAction = '보증금 안내 또는 특별심사 요청'; }
       var lrd0 = limitResultDate(r);
       elapsed = lrd0 ? daysSinceDate(lrd0) : daysSince(r.d);
-      mailType = '\uBCF4\uC99D\uAE08/\uD2B9\uBCC4\uC2EC\uC0AC \uC548\uB0B4';
-      if (elapsed >= 14) { urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; } else if (elapsed >= 7) { urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
+      mailType = '보증금/특별심사 안내';
+      if (elapsed >= 14) { urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; } else if (elapsed >= 7) { urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
     } else if (r.lnz) {
-      status = '\uC720\uD6A8\uD55C\uB3C4\xB7\uBBF8\uBC1C\uAE09';
+      status = '유효한도·미발급';
       var lrd = limitResultDate(r);
       elapsed = lrd ? daysSinceDate(lrd) : daysSince(r.d);
-      if (elapsed >= 30) { mailType = '\uCE74\uB4DC\uBC1C\uAE09 \uCD5C\uC885 \uB3C5\uCD09 [D+30]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 14) { mailType = '\uBC1C\uAE09 \uB9AC\uB9C8\uC778\uB4DC [D+14]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 7) { mailType = '\uCE74\uB4DC \uBC1C\uAE09 \uC548\uB0B4 [D+7]'; urgIcon = '\uD83D\uDFE2'; }
-      nextAction = '\uCE74\uB4DC \uC815\uBCF4 \uC785\uB825 \u2192 \uBC1C\uAE09 \uC548\uB0B4';
+      if (elapsed >= 30) { mailType = '카드발급 최종 독촉 [D+30]'; urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; }
+      else if (elapsed >= 14) { mailType = '발급 리마인드 [D+14]'; urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
+      else if (elapsed >= 7) { mailType = '카드 발급 안내 [D+7]'; urgIcon = '🟢'; urgLabel = '정상'; }
+      nextAction = '카드 정보 입력 → 발급 안내';
     } else if (r.lr) {
-      status = '\uD55C\uB3C4\uC0B0\uCD9C'; nextAction = '\uD55C\uB3C4 \uACB0\uACFC \uD655\uC778 \uC548\uB0B4';
+      status = '한도산출'; nextAction = '한도 결과 확인 안내';
       elapsed = daysSince(r.d);
     } else if (r.sig) {
-      status = '\uAC00\uC785\uC644\uB8CC\xB7\uD55C\uB3C4\uBBF8\uC2DC\uC791';
+      status = '가입완료·한도미시작';
       var sd = signupDate(r);
       elapsed = sd ? daysSinceDate(sd) : daysSince(r.d);
-      if (elapsed >= 30) { mailType = '\uD55C\uB3C4\uC2EC\uC0AC \uCD5C\uC885 \uB3C5\uCD09 [D+30]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 14) { mailType = '\uD55C\uB3C4\uC870\uD68C \uB9AC\uB9C8\uC778\uB4DC [D+14]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 5) { mailType = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4 [D+5]'; urgIcon = '\uD83D\uDFE2'; }
-      nextAction = '\uD55C\uB3C4 \uC870\uD68C \uC548\uB0B4';
+      if (elapsed >= 30) { mailType = '한도심사 최종 독촉 [D+30]'; urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; }
+      else if (elapsed >= 14) { mailType = '한도조회 리마인드 [D+14]'; urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
+      else if (elapsed >= 5) { mailType = '한도 조회 안내 [D+5]'; urgIcon = '🟢'; urgLabel = '정상'; }
+      nextAction = '한도 조회 안내';
     } else if (r.apr) {
-      status = '\uC2B9\uC778\xB7\uBBF8\uAC00\uC785';
+      status = '승인·미가입';
       var ad = approvalDate(r);
       elapsed = ad ? daysSinceDate(ad) : daysSince(r.d);
-      if (elapsed >= 14) { mailType = '\uCD5C\uC885 \uB3C5\uCD09 \uBA54\uC77C [D+14]'; urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; }
-      else if (elapsed >= 7) { mailType = '\uAC00\uC785 \uB9AC\uB9C8\uC778\uB4DC [D+7]'; urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
-      else if (elapsed >= 3) { mailType = '\uAC00\uC785 \uC548\uB0B4 \uBA54\uC77C [D+3]'; urgIcon = '\uD83D\uDFE2'; }
-      nextAction = '\uD68C\uC6D0\uAC00\uC785 \uC548\uB0B4';
+      if (elapsed >= 14) { mailType = '최종 독촉 메일 [D+14]'; urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; }
+      else if (elapsed >= 7) { mailType = '가입 리마인드 [D+7]'; urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
+      else if (elapsed >= 3) { mailType = '가입 안내 메일 [D+3]'; urgIcon = '🟢'; urgLabel = '정상'; }
+      nextAction = '회원가입 안내';
     } else {
-      status = '\uC811\uC218'; nextAction = '\uC2EC\uC0AC \uC9C4\uD589 \uD655\uC778';
+      status = '접수'; nextAction = '심사 진행 확인';
       elapsed = daysSince(r.d);
     }
 
+    var isDone = !!r.fs;
+    var urgBadge = isDone ? '<span style="font-size:11px;color:var(--text-muted)">-</span>' :
+      '<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;background:' +
+      (urgClass === 'urgent' ? 'rgba(240,96,96,0.15);color:var(--accent)' : urgClass === 'warning' ? 'rgba(251,191,36,0.15);color:#b45309' : 'rgba(52,211,153,0.15);color:var(--success)') +
+      '">' + urgIcon + ' ' + urgLabel + '</span>';
+
     var badgeClass = statusBadgeClass(status);
-    html += '<tr data-corp="' + esc(r.c) + '" data-urg="' + urgClass + '" data-done="' + (r.fs?1:0) + '" data-action="' + (mailType !== '-' ? 1 : 0) + '">';
+    html += '<tr data-corp="' + esc(r.c) + '" data-urg="' + urgClass + '" data-done="' + (r.fs?1:0) + '" data-action="' + (mailType !== '-' ? 1 : 0) + '" data-status="' + esc(status) + '">';
+    html += '<td style="text-align:center">' + urgBadge + '</td>';
     html += '<td style="white-space:nowrap">' + r.d + '</td>';
     html += '<td data-open-corp="' + esc(r.c) + '" style="cursor:pointer;color:var(--primary);font-weight:600">' + esc(r.c) + '</td>';
-    html += '<td>' + esc(r.am || '-') + '</td>';
+    html += '<td style="font-size:11px;color:var(--text-muted)">' + esc(r.am || '-') + '</td>';
     html += '<td style="white-space:nowrap"><span class="status-badge ' + badgeClass + '">' + status + '</span></td>';
-    html += '<td style="font-weight:600;color:' + (elapsed >= 14 ? 'var(--accent)' : elapsed >= 7 ? '#b45309' : 'var(--text)') + '">D+' + elapsed + '</td>';
-    html += '<td>' + urgIcon + '</td>';
+    html += '<td class="num" style="color:' + (isDone ? 'var(--text-muted)' : elapsed >= 14 ? 'var(--accent)' : elapsed >= 7 ? '#b45309' : 'var(--text)') + ';font-weight:' + (elapsed >= 7 ? '700' : '400') + '">D+' + elapsed + '</td>';
     var dtKey = getTemplateKey(mailType);
     if (dtKey) {
-      html += '<td style="font-size:11px"><span onclick="openMailTemplate(\'' + esc(dtKey).replace(/'/g,"\\'") + '\',\'' + esc(r.c).replace(/'/g,"\\'") + '\',\'' + esc(r.am||'').replace(/'/g,"\\'") + '\',' + elapsed + ',\'' + r.d + '\')" style="cursor:pointer;color:var(--primary);text-decoration:underline">' + esc(mailType) + '</span></td>';
+      html += '<td style="font-size:10px"><span onclick="openMailTemplate(\'' + esc(dtKey).replace(/'/g,"\\'") + '\',\'' + esc(r.c).replace(/'/g,"\\'") + '\',\'' + esc(r.am||'').replace(/'/g,"\\'") + '\',' + elapsed + ',\'' + r.d + '\')" style="cursor:pointer;color:var(--primary);text-decoration:underline;text-decoration-style:dotted">' + esc(mailType) + '</span></td>';
     } else {
-      html += '<td style="font-size:11px;color:var(--text-muted);opacity:0.6">' + esc(mailType) + '</td>';
+      html += '<td style="font-size:10px;color:var(--text-muted);opacity:0.6">' + esc(mailType) + '</td>';
     }
-    html += '<td style="font-size:11px;color:var(--text-muted)">' + esc(nextAction) + '</td>';
+    html += '<td style="font-size:10px;color:' + (isDone ? 'var(--text-muted)' : 'var(--text)') + '">' + esc(nextAction) + '</td>';
     var crmText = sanitizeCRM(r.crm || '');
     html += '<td style="font-size:10px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(crmText) + '">' + (crmText ? esc(crmText) : '<span style="color:var(--text-muted);opacity:0.4">-</span>') + '</td>';
     html += '</tr>';
   });
 
-  html += '</tbody></table></div>';
-  document.getElementById('detailTableWrap').innerHTML = '<div class="card">' + html + '</div>';
+  html += '</tbody>';
+  document.getElementById('detailTableInner').innerHTML = html;
 
   // Update sort arrows
   var arrows = {elapsed: '\u2195', date: '\u2195'};
@@ -2111,7 +2130,7 @@ function exportDetailCSV() {
 // Detail table filter
 function filterDetail(type, btn) {
   if (btn) {
-    btn.parentElement.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});
+    document.querySelectorAll('.tab-btn.detail-status').forEach(function(b){b.classList.remove('active')});
     btn.classList.add('active');
   }
   var rows = document.querySelectorAll('#detailTableInner tbody tr');
@@ -2131,6 +2150,38 @@ function filterDetailBySearch(query) {
     var corp = (row.dataset.corp || '').toLowerCase();
     row.style.display = (!query || corp.indexOf(query) >= 0) ? '' : 'none';
   });
+}
+
+function scrollToDetailFiltered(type) {
+  // Ensure detail section is expanded
+  var section = document.getElementById('detailSection');
+  if (section) {
+    var body = section.querySelector('.collapse-body');
+    var toggle = section.querySelector('.collapse-toggle');
+    if (body && !body.classList.contains('open')) {
+      body.classList.add('open');
+      if (toggle) toggle.classList.add('open');
+    }
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  setTimeout(function() {
+    var rows = document.querySelectorAll('#detailTableInner tbody tr');
+    rows.forEach(function(row) {
+      if (type === 'all') { row.style.display = ''; }
+      else if (type === 'done') { row.style.display = row.dataset.done === '1' ? '' : 'none'; }
+      else if (type === 'action') { row.style.display = row.dataset.action === '1' ? '' : 'none'; }
+      else if (type === 'urgent') { row.style.display = row.dataset.urg === 'urgent' ? '' : 'none'; }
+      else if (type === 'warning') { row.style.display = row.dataset.urg === 'warning' ? '' : 'none'; }
+      else if (type === 'lz') {
+        var s = row.dataset.status || '';
+        row.style.display = (s === '한도0원' || s === '보증금 신청' || s === '보증금 확인' || s === '특별심사' || s === '특별심사 승인') ? '' : 'none';
+      }
+      else if (type === 'nosignup') { row.style.display = row.dataset.status === '승인\xB7미가입' ? '' : 'none'; }
+      else if (type === 'inprogress') { row.style.display = (row.dataset.done !== '1' && row.dataset.status !== '완료') ? '' : 'none'; }
+    });
+    // Clear active state on filter buttons
+    document.querySelectorAll('.tab-btn.detail-status').forEach(function(b) { b.classList.remove('active'); });
+  }, 300);
 }
 
 // ─── CARD CO COMM MAIL TEMPLATES ───
@@ -2155,6 +2206,7 @@ var COMM_MAIL_TEMPLATES = {
 
 // ─── CARD CO COMM SECTION ───
 var commActiveTab = '전체';
+var hideClosureReview = true; // 기본: 종결 검토(D+180) 숨김
 
 function buildCardCoComm() {
   // 카드사 커뮤니케이션은 날짜 필터와 무관하게 전체 발급대기 건을 표시
@@ -2206,10 +2258,24 @@ function buildCardCoComm() {
     return b.elapsed - a.elapsed;
   });
 
+  var closureCount = items.filter(function(i) { return i.elapsed >= 180; }).length;
+  var displayItems = hideClosureReview ? items.filter(function(i) { return i.elapsed < 180; }) : items;
+
   var badge = document.getElementById('commBadge');
   if (badge) badge.textContent = items.length + '건';
 
-  renderCommTable(items);
+  var closureToggle = document.getElementById('closureToggle');
+  if (closureToggle) {
+    if (closureCount > 0) {
+      closureToggle.innerHTML = hideClosureReview
+        ? '<span style="color:var(--info);cursor:pointer" onclick="event.stopPropagation();hideClosureReview=false;buildCardCoComm()">종결 검토 ' + closureCount + '건 숨김 중 ▸</span>'
+        : '<span style="color:var(--info);cursor:pointer" onclick="event.stopPropagation();hideClosureReview=true;buildCardCoComm()">종결 검토 포함 중 ▾</span>';
+    } else {
+      closureToggle.innerHTML = '';
+    }
+  }
+
+  renderCommTable(displayItems);
 }
 
 function renderCommTable(items) {
@@ -2560,13 +2626,16 @@ document.addEventListener('keydown', function(e) {
 </script>
 
 <nav class="floating-nav" id="floatingNav">
-  <a href="#kpiSection">핵심 지표</a>
-  <a href="#todoSection">오늘 할 일</a>
-  <a href="#funnelSection">퍼널</a>
-  <a href="#trendSection">트렌드</a>
-  <a href="#slaSection">SLA</a>
-  <a href="#detailSection">건별 상세</a>
-  <a href="#cardCoCommSection">카드사 커뮤니케이션</a>
+  <div class="floating-nav-menu">
+    <a href="#kpiSection">핵심 지표</a>
+    <a href="#todoSection">오늘 할 일</a>
+    <a href="#funnelSection">퍼널</a>
+    <a href="#trendSection">트렌드</a>
+    <a href="#slaSection">SLA</a>
+    <a href="#detailSection">건별 상세</a>
+    <a href="#cardCoCommSection">카드사 커뮤니케이션</a>
+  </div>
+  <div class="floating-nav-toggle" onclick="document.getElementById('floatingNav').classList.toggle('open')">☰</div>
 </nav>
 
 <!-- ── MODALS ── -->
@@ -2583,6 +2652,14 @@ document.addEventListener('keydown', function(e) {
   <div class="modal" style="max-width:560px;max-height:80vh;overflow-y:auto">
     <h3>변경 이력</h3>
     <div style="font-size:12px;color:var(--text)">
+      <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.5</strong> <span style="color:var(--text-muted)">2026-03-16</span>
+        <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
+          <li><strong>[UX]</strong> 플로팅 네비게이션 접이식으로 개선 — 콘텐츠 가림 해소</li>
+          <li><strong>[UX]</strong> 종결 검토(D+180) 기본 숨김 토글 추가 — 실제 액션 필요 건에 집중</li>
+          <li><strong>[UX]</strong> 건별 상세 테이블 내부 스크롤 적용 (max-height: 600px)</li>
+          <li><strong>[UX]</strong> 핵심 지표 카드 클릭 시 건별 상세로 이동+필터 적용</li>
+        </ul>
+      </div>
       <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.4</strong> <span style="color:var(--text-muted)">2026-03-16</span>
         <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
           <li><strong>[데이터]</strong> 총 신청 건수 정합성 — filterInfo에 신청 기준/전체 건수 병기</li>
