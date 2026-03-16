@@ -233,6 +233,7 @@
       font-size: 12px; color: var(--text-muted); transition: all 0.15s;
     }
     .tab-btn:hover { background: var(--primary-dim); color: var(--primary); }
+    .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
     /* ── COLLAPSIBLE ── */
     .collapse-toggle {
@@ -1463,7 +1464,7 @@ function openCorpDetail(corpName) {
     {key:'lp', label:'한도진행', done: record.lp},
     {key:'lr', label:'한도결과', done: record.lr},
     {key:'lnz', label:'한도>0', done: record.lnz, skip: !record.lr},
-    {key:'lz', label: record.lzs ? '특별심사' : (record.lz ? '보증금' : '한도=0'), done: record.lz, skip: !record.lr || record.lnz},
+    {key:'lz', label: record.sr ? (record.sa ? '특별심사 승인' : '특별심사 진행') : (record.da ? (record.dc ? '보증금 확인' : '보증금 신청') : '한도=0'), done: record.lz, skip: !record.lr || record.lnz},
     {key:'ci', label:'카드생성', done: record.ci},
     {key:'ca', label:'카드신청', done: record.ca},
     {key:'cd', label:'카드발급', done: record.cd},
@@ -1490,8 +1491,11 @@ function openCorpDetail(corpName) {
     templateInfo = '카드 발급 안내'; templateGrade = '🟢자동발송';
   }
   else if (record.lz) {
-    currentStep = record.lzs ? '특별심사 진행중' : '보증금 대상';
-    nextAction = record.lzs ? 'Risk팀 특별심사 결과 대기' : '보증금 안내 메일 발송';
+    if (record.sa) { currentStep = '특별심사 승인'; nextAction = '승인 한도 기반 카드 발급 진행'; statusColor = 'var(--success)'; }
+    else if (record.sr) { currentStep = '특별심사 진행중'; nextAction = 'Risk팀 특별심사 결과 대기'; statusColor = 'var(--info)'; }
+    else if (record.dc) { currentStep = '보증금 확인 완료'; nextAction = '보증금 기반 한도 재산출 대기'; statusColor = 'var(--success)'; }
+    else if (record.da) { currentStep = '보증금 신청'; nextAction = '보증금 입금 확인 대기'; statusColor = 'var(--warning)'; }
+    else { currentStep = '한도 0원 산출'; nextAction = '보증금 안내 또는 특별심사 요청'; statusColor = 'var(--accent)'; }
     statusColor = 'var(--accent)';
     templateInfo = '보증금/특별심사 안내'; templateGrade = '🔴필수승인';
   }
@@ -1576,9 +1580,12 @@ function openCorpDetail(corpName) {
 
   // 한도0원 상태 카드 (보증금/특별심사 구분)
   if (record.lz) {
-    var lzLabel = record.lzs ? '특별심사 진행중' : '보증금 대상';
-    var lzColor = record.lzs ? 'var(--info)' : 'var(--accent)';
-    var lzDesc = record.lzs ? 'Risk팀에서 특별심사를 진행 중입니다.' : '보증금 납입 안내가 필요합니다.';
+    var lzLabel, lzColor, lzDesc;
+    if (record.sa) { lzLabel = '특별심사 승인'; lzColor = 'var(--success)'; lzDesc = '특별심사 승인 완료. 카드 발급을 진행합니다.'; }
+    else if (record.sr) { lzLabel = '특별심사 진행중'; lzColor = 'var(--info)'; lzDesc = 'Risk팀에서 특별심사를 진행 중입니다.'; }
+    else if (record.dc) { lzLabel = '보증금 확인 완료'; lzColor = 'var(--success)'; lzDesc = '보증금 입금 확인. 한도 재산출 대기 중입니다.'; }
+    else if (record.da) { lzLabel = '보증금 신청'; lzColor = 'var(--warning)'; lzDesc = '보증금 신청 접수. 입금 확인을 대기 중입니다.'; }
+    else { lzLabel = '한도 0원'; lzColor = 'var(--accent)'; lzDesc = '보증금 안내 또는 특별심사 요청이 필요합니다.'; }
     html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px;margin-bottom:16px;border-left:4px solid ' + lzColor + '">';
     html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">한도 0원 상태</div>';
     html += '<div style="font-size:14px;font-weight:700;color:' + lzColor + ';margin-bottom:4px">' + lzLabel + '</div>';
@@ -1749,7 +1756,7 @@ function buildTodoPanel(records) {
       var lrd = limitResultDate(r);
       var elapsed = lrd ? Math.floor((today - lrd) / 86400000) : daysSince(r.d);
       var urg = getUrgency(elapsed);
-      var cat = r.lzs ? '특별심사 진행' : '보증금 대상';
+      var cat = r.sa ? '특별심사 승인' : r.sr ? '특별심사 진행' : r.dc ? '보증금 확인' : r.da ? '보증금 신청' : '한도 0원 조치';
       todos.push({type:'warning', category:cat, corp:r.c, am:r.am||'-', elapsed:elapsed, mail:getMailType('\uD55C\uB3C4 0\uC6D0 \uC870\uCE58', elapsed), urgency:urg, date:r.d});
     }
   });
@@ -1990,11 +1997,14 @@ function buildDetailTable(records) {
       else if (elapsed >= 7) { mailType = '\uD15C\uD50C\uB9BF#4 \uCCAB\uC0AC\uC6A9 \uB3C5\uB824 [D+7]'; urgIcon = '\uD83D\uDFE2'; }
       nextAction = '\uCCAB\uC0AC\uC6A9 \uB3C5\uB824 \uC5F0\uB77D';
     } else if (r.lz) {
-      status = r.lzs ? '특별심사' : '보증금';
+      if (r.sa) { status = '특별심사 승인'; nextAction = '승인 한도 기반 카드 발급 진행'; }
+      else if (r.sr) { status = '특별심사'; nextAction = 'Risk팀 특별심사 결과 대기'; }
+      else if (r.dc) { status = '보증금 확인'; nextAction = '보증금 기반 한도 재산출 대기'; }
+      else if (r.da) { status = '보증금 신청'; nextAction = '보증금 입금 확인 대기'; }
+      else { status = '한도0원'; nextAction = '보증금 안내 또는 특별심사 요청'; }
       var lrd0 = limitResultDate(r);
       elapsed = lrd0 ? daysSinceDate(lrd0) : daysSince(r.d);
       mailType = '\uBCF4\uC99D\uAE08/\uD2B9\uBCC4\uC2EC\uC0AC \uC548\uB0B4';
-      nextAction = r.lzs ? 'Risk팀 특별심사 결과 대기' : '보증금 안내 메일 발송';
       if (elapsed >= 14) { urgIcon = '\uD83D\uDD34'; urgClass = 'urgent'; } else if (elapsed >= 7) { urgIcon = '\uD83D\uDFE1'; urgClass = 'warning'; }
     } else if (r.lnz) {
       status = '\uC720\uD6A8\uD55C\uB3C4\xB7\uBBF8\uBC1C\uAE09';
