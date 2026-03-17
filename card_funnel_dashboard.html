@@ -759,8 +759,16 @@ function applyFilter() {
   try { buildSLA(sla); } catch(e) { console.error('buildSLA:', e); }
   try { buildAMTable(records); } catch(e) { console.error('buildAMTable:', e); }
   try { buildDepthAnalysis(records); } catch(e) { console.error('buildDepthAnalysis:', e); }
-  try { buildDetailTable(records); } catch(e) { console.error('buildDetailTable:', e); }
+  try { buildDetailTable(records); } catch(e) { console.error('buildDetailTable:', e); document.getElementById('detailTableInner').innerHTML = '<tr><td style="color:red;padding:12px">ERROR buildDetailTable: ' + e.message + '</td></tr>'; }
   try { buildCardCoComm(); } catch(e) { console.error('buildCardCoComm:', e); }
+  // 디버그: 에러 수집
+  var _errors = [];
+  ['buildKPIs','buildAlerts','buildTodoPanel','buildFunnel','buildMonthlyTrend','buildDailyTrend','buildMonthlyTable','buildSLA','buildAMTable','buildDepthAnalysis','buildDetailTable','buildCardCoComm'].forEach(function(fn) {
+    // 이미 try-catch로 감싸져 있으므로 여기서는 패스
+  });
+  if (records.length > 0 && !document.querySelector('#detailTableInner tbody tr[data-corp]')) {
+    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="9" style="color:red;padding:12px">디버그: records=' + records.length + '건이지만 테이블 미렌더링. 콘솔(F12)을 확인하세요.</td></tr></tbody>';
+  }
 
   // URL parameter persistence
   var params = new URLSearchParams();
