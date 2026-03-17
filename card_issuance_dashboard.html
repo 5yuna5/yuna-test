@@ -2673,7 +2673,7 @@ function buildIndustryChart() {
   const cfg = IND_METRIC_CFG[_currentIndustryMetric];
 
   // Filter and sort
-  const validData = INDUSTRY_DATA.filter(d => d[cfg.key] != null && d[cfg.key] > 0);
+  const validData = INDUSTRY_DATA.filter(d => d[cfg.key] != null && d[cfg.key] >= 0);
   const sorted = [...validData].sort((a, b) => _industrySortFn(a, b, cfg));
   _lastIndustrySorted = sorted;
 
@@ -3024,7 +3024,7 @@ let _lastFilteredUsage = null;
 
 function switchCompareMetric(metric) {
   _currentCompareMetric = metric;
-  document.querySelectorAll('.compare-btn').forEach(btn => {
+  document.querySelectorAll('#compareToggle .compare-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.metric === metric);
   });
   buildCompareCards(_lastFilteredUsage, metric);
@@ -3226,7 +3226,8 @@ function downloadModalExcel() {
   const q = document.getElementById('modalSearch').value.trim().toLowerCase();
   const rows = q ? _modalData.filter(r => {
     const name = (r.name || r.n || '').toLowerCase();
-    return name.includes(q);
+    const id = String(r.id || r.corp_id || '');
+    return name.includes(q) || id.includes(q);
   }) : _modalData;
 
   // BOM for Korean Excel compatibility
@@ -3644,6 +3645,7 @@ function buildAlertBanners(filtered, filteredUsage) {
    DYNAMIC WEEKLY EXECUTIVE SUMMARY
 ══════════════════════════════════════════ */
 function buildWeeklySummary(filtered, filteredUsage) {
+  if (!filtered || filtered.length === 0) return;
   const titleEl = document.getElementById('weeklySummaryTitle');
   const grid = document.getElementById('weeklySummaryGrid');
   const today = new Date();
@@ -3961,6 +3963,7 @@ function buildSLAChart(filtered) {
     pointBackgroundColor: '#6366f1',
     tension: 0.3,
     fill: false,
+    stack: false,
     yAxisID: 'y',
     order: 0,
   });
@@ -4074,6 +4077,7 @@ function buildPartB(filteredUsage) {
    BUILD PART C — DYNAMIC ACTION RECOMMENDATIONS
 ══════════════════════════════════════════ */
 function buildPartC(filtered, filteredUsage) {
+  if (!filtered || filtered.length === 0) return;
   const container = document.getElementById('actionGrid');
   const actions = [];
   const total = sumData(filtered);
@@ -4498,7 +4502,7 @@ function toggleCohortCompare() {
   const btn = document.getElementById('btnCohortCompare');
   wrap.classList.toggle('active');
   btn.classList.toggle('active');
-  if (wrap.classList.contains('active') && document.getElementById('cohortCompareA').options.length === 0) {
+  if (wrap.classList.contains('active')) {
     initCohortCompareDropdowns();
     runCohortCompare();
   }

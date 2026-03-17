@@ -643,31 +643,11 @@ function resetDateRange() {
   }
 }
 
-// ─── 카드정보 입력 세부 단계 라벨 ───
-var DEPTH_LABELS = {
-  'SIGNUP':'시작 전','GOWID_TOS_GOWID':'이용약관','GOWID_CORP_CERT':'법인인증서','GOWID_CORP_CERT_CHECK':'법인인증 확인',
-  'GOWID_CORP_ETC':'법인 추가정보','GOWID_LIMIT_ACCOUNT':'한도 계좌','GOWID_LIMIT_HOPE':'희망한도',
-  'GOWID_LIMIT_RESULT':'한도 결과','GOWID_LIMIT_REEXAM_REQUEST':'재심사 요청','GOWID_LIMIT_REEXAM_REJECT':'재심사 거절',
-  'GOWID_STOCKHOLDER':'주주명부 등록','GOWID_STOCKHOLDER_ETC':'주주 추가정보',
-  'GOWID_CARD_INFO':'카드정보 입력','GOWID_SIGN_REVIEW':'서명 검토','GOWID_SIGN_CEO':'대표자 인증',
-  'GOWID_SIGN_APPLY':'서명 신청','GOWID_JUDGE_ACCOUNT':'심사 계좌','GOWID_NON_COMFORMING':'부적합',
-  'CARD_TERM':'카드 약관동의','CARD_FINANCIAL_CONSUMER_PROTECTION':'금소법 확인',
-  'CARD_OPTION':'카드상품 선택','CARD_KYC':'실제소유자 확인','CARD_REQUIRED_DOCUMENT':'필수서류 제출',
-  'CARD_BILLING':'결제/수령정보','CARD_MANAGER':'카드관리자 인증','CARD_SIGN_REVIEW':'발급정보 확인','CARD_SIGN_APPLY':'전자서명'
-};
-var DEPTH_GROUPS = {
-  '약관/기본':['SIGNUP','GOWID_TOS_GOWID','CARD_TERM','CARD_FINANCIAL_CONSUMER_PROTECTION'],
-  '법인인증':['GOWID_CORP_CERT','GOWID_CORP_CERT_CHECK','GOWID_CORP_ETC'],
-  '한도관련':['GOWID_LIMIT_ACCOUNT','GOWID_LIMIT_HOPE','GOWID_LIMIT_RESULT','GOWID_LIMIT_REEXAM_REQUEST','GOWID_LIMIT_REEXAM_REJECT'],
-  '주주/KYC':['GOWID_STOCKHOLDER','GOWID_STOCKHOLDER_ETC','CARD_KYC'],
-  '카드정보':['GOWID_CARD_INFO','CARD_OPTION','CARD_REQUIRED_DOCUMENT','CARD_BILLING','GOWID_NON_COMFORMING'],
-  '서명/인증':['GOWID_SIGN_REVIEW','GOWID_SIGN_CEO','GOWID_SIGN_APPLY','CARD_SIGN_REVIEW','CARD_SIGN_APPLY','GOWID_JUDGE_ACCOUNT','CARD_MANAGER']
-};
-function getDepthLabel(dp) { return DEPTH_LABELS[dp] || dp || '-'; }
-function getDepthGroup(dp) {
-  for (var g in DEPTH_GROUPS) { if (DEPTH_GROUPS[g].indexOf(dp) >= 0) return g; }
-  return '기타';
-}
+// ─── 카드정보 입력 세부 단계 라벨 (dead code: dp 필드 RECORD_DATA에 미존재) ───
+// var DEPTH_LABELS = { ... };
+// var DEPTH_GROUPS = { ... };
+// function getDepthLabel(dp) { return DEPTH_LABELS[dp] || dp || '-'; }  // dead code: dp 미존재
+// function getDepthGroup(dp) { ... }  // dead code: dp 미존재
 
 // ─── FILTER ───
 function getFilteredRecords() {
@@ -1002,7 +982,7 @@ function buildAlerts(records) {
       alerts.push({type:'danger', cat:'\uBBF8\uAC00\uC785', label:'\uC2B9\uC778 \uD6C4 \uBBF8\uAC00\uC785', corp:r.c, am:r.am||'-', days:dSinceApproval});
     }
     if (r.lnz && !r.cd) {
-      var totalSLA = (r.d1||0)+(r.d2||0)+(r.d3||0);
+      let totalSLA = (r.d1||0)+(r.d2||0)+(r.d3||0);
       var dSinceLR = days - totalSLA;
       if (dSinceLR < 0) dSinceLR = 0;
       if (dSinceLR > 14) {
@@ -1010,7 +990,7 @@ function buildAlerts(records) {
       }
     }
     if (r.sig && !r.ls) {
-      var totalSLA = (r.d1||0)+(r.d2||0);
+      let totalSLA = (r.d1||0)+(r.d2||0);
       var dSinceSignup = days - totalSLA;
       if (dSinceSignup < 0) dSinceSignup = 0;
       if (dSinceSignup > 14) {
@@ -1226,6 +1206,7 @@ let dailyTrendChartInstance = null;
 function buildDailyTrend(records) {
   const start = document.getElementById('filterStart').value;
   const end = document.getElementById('filterEnd').value;
+  if (!start || !end) return;
   document.getElementById('dailyPeriodBadge').textContent = start + ' ~ ' + end;
 
   // Group by date
@@ -1686,17 +1667,8 @@ function openCorpDetail(corpName) {
   });
   html += '</div>';
 
-  // 카드정보 입력 세부 단계 (미완료 건만)
-  if (record.dp && !record.ca) {
-    var depthLabel = getDepthLabel(record.dp);
-    var depthGroup = getDepthGroup(record.dp);
-    var depthColor = depthGroup === '서명/인증' ? 'var(--success)' : depthGroup === '카드정보' ? 'var(--info)' : depthGroup === '주주/KYC' ? 'var(--warning)' : depthGroup === '한도관련' ? 'var(--accent)' : 'var(--text-muted)';
-    html += '<div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px;margin-bottom:16px;border-left:4px solid ' + depthColor + '">';
-    html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">카드정보 입력 현재 단계</div>';
-    html += '<div style="font-size:14px;font-weight:700;color:var(--text-strong);margin-bottom:4px">' + depthLabel + '</div>';
-    html += '<div style="font-size:11px;color:var(--text-muted)">그룹: ' + depthGroup + '</div>';
-    html += '</div>';
-  }
+  // 카드정보 입력 세부 단계 — dead code: dp 필드 RECORD_DATA에 미존재, 항상 미표시
+  // if (record.dp && !record.ca) { ... }
 
   html += '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:600;color:var(--text-strong);margin-bottom:8px">SLA 소요일</div>';
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
@@ -2051,7 +2023,7 @@ function buildDetailTable(records) {
   }
 
   if (records.length === 0) {
-    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px">데이터 없음</td></tr></tbody>';
+    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px">데이터 없음</td></tr></tbody>';
     return;
   }
 
@@ -2421,7 +2393,6 @@ function commSwitchTab(tab, btn) {
     btn.style.color = '#fff';
   }
   // Re-render with current filtered records
-  var records = getFilteredRecords();
   buildCardCoComm();
 }
 

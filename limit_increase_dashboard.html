@@ -871,7 +871,7 @@ function aggregateSLA(recs) {
     if (r.ld != null) { o._ldS += r.ld; o._ldN = (o._ldN || 0) + 1; }
     if (r.sd != null) { o._sdS += r.sd; o._sdN = (o._sdN || 0) + 1; }
     o._gdS += (r.nd != null ? r.nd : 0) + (r.ld != null ? r.ld : 0);
-    o._loC += r.lo; o._goC += r.go; o._soC += r.so; o._coC += r.co;
+    o._loC += (r.lo ? 1 : 0); o._goC += (r.go ? 1 : 0); o._soC += (r.so ? 1 : 0); o._coC += (r.co ? 1 : 0);
   });
   return Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month)).map(o => {
     const n = o.completed_cnt || 1;
@@ -1348,7 +1348,12 @@ function buildKPI(data, slaData) {
     const sevenPlusCnt = DETAIL_DATA.filter(r => {
       const start2 = document.getElementById('filterStart').value;
       const end2 = document.getElementById('filterEnd').value;
-      return r.init && r.init >= start2 && r.init <= end2 && r.elapsed > 7 && !r.done && !r.reject && !r.card_reject;
+      const _am2 = getSelectedAM();
+      const _cc2 = getSelectedCardCo__PATCHED();
+      if (!r.init || r.init < start2 || r.init > end2) return false;
+      if (_am2 && (!r.am || !r.am.split(',').some(function(a){return a.trim()===_am2;}))) return false;
+      if (_cc2 && r.card_co !== _cc2) return false;
+      return r.elapsed > 7 && !r.done && !r.reject && !r.card_reject;
     }).length;
     const latestSLA = (slaData || getFilteredSLA()).slice(-1)[0];
     const slaOverCnt = latestSLA
@@ -2184,6 +2189,14 @@ function scrollToDetailFiltered(type) {
       else if (type === 'gowid_rejected') { row.style.display = row.dataset.reject === '1' ? '' : 'none'; }
       else if (type === 'card_rejected') { row.style.display = row.dataset.cardReject === '1' ? '' : 'none'; }
     });
+    // 검색 상태 재적용 (M-1/M-2: 검색 필터가 KPI 클릭으로 초기화되지 않도록)
+    var searchInput = document.getElementById('detailSearchInput');
+    if (searchInput && searchInput.value) {
+      filterDetailBySearch(searchInput.value);
+    }
+    // NOTE(known-issue M-2): hideCompleted 상태는 여기서 재적용하지 않음.
+    // KPI 카드 클릭 시 승인/부결 건도 보여야 하므로 hideCompleted와 충돌 가능성 있음.
+    // 완전한 수정은 scrollToDetailFiltered를 buildDetailTable 기반으로 재구현 필요.
   }, 300);
 }
 
@@ -2602,6 +2615,8 @@ function exportDetailCSV() {
   if (cc) rows = rows.filter(r => r.card_co === cc);
   if (tf === '한도상향') rows = rows.filter(r => r.type === '한도상향');
   else if (tf === '카드사 추가') rows = rows.filter(r => r.type === '카드사 추가');
+  // M-3: buildDetailTable과 동일한 hideCompleted 필터 적용
+  if (hideCompleted && sf === 'all') rows = rows.filter(r => !r.done);
   if (sf === 'in_progress') rows = rows.filter(r => !r.done && !r.reject && !r.card_reject);
   else if (sf === 'rejected') rows = rows.filter(r => r.reject || r.card_reject);
   else if (sf === 'approved') rows = rows.filter(r => r.done);
