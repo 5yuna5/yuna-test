@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>법인 검색 | GoWid</title>
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    :root {
+      --bg: #f1f5f9; --bg-secondary: #e8edf4; --card: #ffffff;
+      --border: rgba(30,41,59,0.10); --border-strong: rgba(30,41,59,0.18);
+      --text: #374151; --text-muted: #6b7280; --text-strong: #0f172a;
+      --primary: #3b82f6; --primary-dim: rgba(59,130,246,0.08);
+      --accent: #f06060; --success: #34d399; --warning: #fbbf24;
+      --info: #818cf8; --orange: #fb923c;
+      --shadow: 0 4px 24px rgba(0,0,0,0.08); --radius: 12px; --radius-sm: 8px;
+    }
+
+    html.dark-mode, body.dark-mode {
+      --bg: #0c1222; --bg-secondary: #0f172a; --card: #182136;
+      --border: rgba(148,163,184,0.12); --border-strong: rgba(148,163,184,0.22);
+      --text: #cbd5e1; --text-muted: #7b8ba3; --text-strong: #f1f5f9;
+      --primary: #5b9cf6; --primary-dim: rgba(91,156,246,0.12);
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+    }
+
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      font-size: 14px; line-height: 1.6; min-height: 100vh;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    .nav-tabs {
+      display: flex; gap: 0; background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-strong); padding: 0 32px;
+    }
+    .nav-tabs a {
+      display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 600;
+      color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .nav-tabs a:hover { color: var(--text-strong); background: var(--primary-dim); }
+    .nav-tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+
+    .search-box {
+      position: relative; margin-bottom: 24px;
+    }
+    .search-box input {
+      width: 100%; padding: 14px 48px 14px 16px;
+      border: 2px solid var(--border-strong); border-radius: 10px;
+      background: var(--card); color: var(--text);
+      font-size: 15px; outline: none; transition: border-color 0.2s;
+    }
+    .search-box input:focus { border-color: var(--primary); }
+    .search-box .search-icon {
+      position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+      font-size: 18px; color: var(--text-muted);
+    }
+
+    .result-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 16px;
+      margin-bottom: 10px; cursor: pointer; transition: all 0.15s;
+    }
+    .result-card:hover { border-color: var(--primary); box-shadow: var(--shadow); transform: translateY(-1px); }
+
+    .result-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .result-corp { font-size: 15px; font-weight: 700; color: var(--text-strong); }
+    .result-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted); }
+    .result-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+    .badge-source {
+      font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; color: #fff;
+    }
+    .badge-source.enroll { background: var(--primary); }
+    .badge-source.limit { background: var(--success); }
+
+    .status-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 600; white-space: nowrap;
+    }
+    .status-badge.completed { background: rgba(52,211,153,0.15); color: var(--success); }
+    .status-badge.rejected { background: rgba(240,96,96,0.15); color: var(--accent); }
+    .status-badge.pending { background: rgba(251,191,36,0.15); color: var(--warning); }
+    .status-badge.progress { background: rgba(91,156,246,0.15); color: var(--primary); }
+    .status-badge.new { background: rgba(59,130,246,0.15); color: var(--primary); }
+
+    .loading { text-align: center; padding: 48px; color: var(--text-muted); font-size: 13px; }
+    .empty-state { text-align: center; padding: 60px 24px; color: var(--text-muted); }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.3; }
+    .empty-state p { font-size: 13px; }
+
+    .result-group-title { font-size: 12px; color: var(--text-muted); font-weight: 600; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+    .result-count { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+
+    .theme-toggle {
+      background: var(--card); border: 1px solid var(--border-strong);
+      border-radius: 4px; padding: 4px 10px; cursor: pointer;
+      color: var(--text-muted); font-size: 11px;
+    }
+
+    @media (max-width: 768px) {
+      .container { padding: 16px 12px; }
+      .nav-tabs { padding: 0 12px; }
+      .nav-tabs a { padding: 8px 14px; font-size: 12px; }
+      .result-meta { gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="nav-tabs" id="navTabsLocal">
+  <a href="corp_search.html" class="active">법인 검색</a>
+  <a href="card_funnel_dashboard.html">신규 입회 퍼널</a>
+  <a href="limit_increase_dashboard.html">한도상향 퍼널</a>
+</div>
+
+<div class="container">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <div>
+      <h1 style="font-size:20px;font-weight:700;color:var(--text-strong)">법인 검색</h1>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:2px">신규 입회 + 한도상향 퍼널 통합 검색</p>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()">라이트/다크</button>
+  </div>
+
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="법인명을 입력하세요..." autocomplete="off" oninput="doSearch(this.value)">
+    <span class="search-icon">🔍</span>
+  </div>
+
+  <div id="statusBar" class="loading">데이터 로딩 중...</div>
+  <div id="results"></div>
+</div>
+
+<script>
+var enrollData = []; // card_funnel RECORD_DATA
+var limitData = [];  // limit_increase RECORD_DATA
+var dataReady = false;
+
+// ─── 데이터 로딩 ───
+Promise.all([
+  fetch('card_funnel_dashboard.html').then(function(r) { return r.text(); }),
+  fetch('limit_increase_dashboard.html').then(function(r) { return r.text(); })
+]).then(function(results) {
+  var m1 = results[0].match(/(?:const|var|let)\s+RECORD_DATA\s*=\s*(\[[\s\S]*?\]);/);
+  var m2 = results[1].match(/(?:const|var|let)\s+RECORD_DATA\s*=\s*(\[[\s\S]*?\]);/);
+  if (m1) enrollData = JSON.parse(m1[1]);
+  if (m2) limitData = JSON.parse(m2[1]);
+  dataReady = true;
+  document.getElementById('statusBar').innerHTML =
+    '<span style="color:var(--success)">데이터 로딩 완료</span> — 신규입회 ' + enrollData.length + '건, 한도상향 ' + limitData.length + '건';
+
+  // URL 파라미터 자동 검색
+  var urlParams = new URLSearchParams(window.location.search);
+  var q = urlParams.get('q') || urlParams.get('corp');
+  if (q) {
+    document.getElementById('searchInput').value = q;
+    doSearch(q);
+  }
+}).catch(function(err) {
+  document.getElementById('statusBar').innerHTML = '<span style="color:var(--accent)">데이터 로딩 실패: ' + err.message + '</span>';
+});
+
+// ─── 검색 ───
+function doSearch(query) {
+  var resultsDiv = document.getElementById('results');
+  query = query.trim();
+  if (!query) {
+    resultsDiv.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>법인명을 입력하면 신규입회·한도상향 퍼널에서<br>해당 법인의 현황을 통합 검색합니다.</p></div>';
+    return;
+  }
+  if (!dataReady) { resultsDiv.innerHTML = '<div class="loading">데이터 로딩 중...</div>'; return; }
+
+  var q = query.toLowerCase();
+  var enrollResults = [];
+  var limitResults = [];
+
+  // 신규 입회 검색
+  var seen = {};
+  enrollData.forEach(function(r) {
+    if (!r.c || seen[r.c]) return;
+    if (r.c.toLowerCase().indexOf(q) < 0) return;
+    seen[r.c] = true;
+
+    var stage = '', cls = '', detail = '';
+    if (r.fs) { stage = '첫사용 완료'; cls = 'completed'; }
+    else if (r.cd) { stage = '카드발급 완료·미사용'; cls = 'completed'; detail = r.id ? '발급일 ' + r.id : ''; }
+    else if (r.lnz) { stage = '유효한도·미발급'; cls = 'progress'; }
+    else if (r.lz) {
+      if (r.sa) stage = '특별심사 승인';
+      else if (r.sr) stage = '특별심사 진행중';
+      else if (r.dc) stage = '보증금 확인';
+      else if (r.da) stage = '보증금 신청';
+      else stage = '한도 0원';
+      cls = 'pending';
+    }
+    else if (r.lr) { stage = '한도산출 완료'; cls = 'progress'; }
+    else if (r.sig) { stage = '가입완료·한도미시작'; cls = 'pending'; }
+    else if (r.apr) { stage = '심사승인·미가입'; cls = 'pending'; }
+    else { stage = '심사중'; cls = 'new'; }
+
+    enrollResults.push({ corp: r.c, date: r.d, am: r.am || '', stage: stage, cls: cls, sla: r.dt, detail: detail });
+  });
+
+  // 한도상향 검색 (같은 법인 여러 건 가능)
+  limitData.forEach(function(r) {
+    if (!r.c) return;
+    if (r.c.toLowerCase().indexOf(q) < 0) return;
+
+    var stage = '', cls = '';
+    if (r.rj) { stage = '고위드 부결'; cls = 'rejected'; }
+    else if (r.cr) { stage = '카드사 부결'; cls = 'rejected'; }
+    else if (r.f4 || r.done) { stage = '최종승인·완료'; cls = 'completed'; }
+    else if (r.f3) { stage = '카드사 접수'; cls = 'progress'; }
+    else if (r.f2) { stage = '신청서 제출'; cls = 'progress'; }
+    else if (r.ga) { stage = '고위드 승인'; cls = 'progress'; }
+    else { stage = '신청접수'; cls = 'new'; }
+
+    var typeLabel = r.t === '상향' ? '한도상향' : '카드사추가';
+    limitResults.push({ corp: r.c, date: r.d, am: r.am || '', stage: stage, cls: cls, sla: r.td, type: typeLabel, cc: r.cc || '' });
+  });
+
+  if (enrollResults.length === 0 && limitResults.length === 0) {
+    resultsDiv.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>"' + esc(query) + '" 검색 결과가 없습니다.</p></div>';
+    return;
+  }
+
+  var html = '<div class="result-count">총 ' + (enrollResults.length + limitResults.length) + '건 — ';
+  html += '신규입회 ' + enrollResults.length + '건, 한도상향 ' + limitResults.length + '건</div>';
+
+  if (enrollResults.length > 0) {
+    html += '<div class="result-group-title">신규 입회 퍼널</div>';
+    enrollResults.forEach(function(r) {
+      html += buildResultCard(r, 'enroll');
+    });
+  }
+
+  if (limitResults.length > 0) {
+    html += '<div class="result-group-title">한도상향 퍼널</div>';
+    limitResults.forEach(function(r) {
+      html += buildResultCard(r, 'limit');
+    });
+  }
+
+  resultsDiv.innerHTML = html;
+}
+
+function buildResultCard(r, source) {
+  var sourceLabel = source === 'enroll' ? '신규입회' : '한도상향';
+  var dashboardUrl = source === 'enroll' ? 'card_funnel_dashboard.html' : 'limit_increase_dashboard.html';
+  var slaText = r.sla != null ? r.sla + '일' : '-';
+  var slaColor = r.sla == null ? '' : r.sla >= 30 ? 'color:var(--accent)' : r.sla >= 14 ? 'color:#b45309' : 'color:var(--success)';
+
+  var html = '<div class="result-card" onclick="goTo(\'' + source + '\',\'' + esc(r.corp).replace(/'/g,"&#39;") + '\',\'' + (r.date || '') + '\')">';
+  html += '<div class="result-header">';
+  html += '<span class="badge-source ' + source + '">' + sourceLabel + '</span>';
+  html += '<span class="result-corp">' + esc(r.corp) + '</span>';
+  html += '<span class="status-badge ' + r.cls + '" style="margin-left:auto">' + r.stage + '</span>';
+  html += '</div>';
+  html += '<div class="result-meta">';
+  html += '<span>📅 ' + (r.date || '-') + '</span>';
+  if (r.am) html += '<span>👤 ' + esc(r.am) + '</span>';
+  if (r.type) html += '<span>📋 ' + r.type + '</span>';
+  if (r.cc) html += '<span>🏦 ' + esc(r.cc) + '</span>';
+  html += '<span style="' + slaColor + '">⏱ SLA ' + slaText + '</span>';
+  if (r.detail) html += '<span>' + esc(r.detail) + '</span>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function goTo(source, corp, date) {
+  var url = source === 'enroll' ? 'card_funnel_dashboard.html' : 'limit_increase_dashboard.html';
+  url += '?corp=' + encodeURIComponent(corp);
+  if (date) url += '&date=' + encodeURIComponent(date);
+  window.location.href = url;
+}
+
+function esc(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── 다크 모드 ───
+function toggleTheme() {
+  document.documentElement.classList.toggle('dark-mode');
+  document.body.classList.toggle('dark-mode');
+  localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+}
+if (localStorage.getItem('theme') === 'dark') {
+  document.documentElement.classList.add('dark-mode');
+  document.body.classList.add('dark-mode');
+}
+
+// 초기 상태
+document.getElementById('results').innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>법인명을 입력하면 신규입회·한도상향 퍼널에서<br>해당 법인의 현황을 통합 검색합니다.</p></div>';
+</script>
+</body>
+</html>
