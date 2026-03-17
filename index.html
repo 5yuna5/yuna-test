@@ -63,11 +63,13 @@
   var tabs = document.querySelectorAll('#navTabs a');
   var frame = document.getElementById('contentFrame');
 
-  function switchTab(page, pushState) {
+  function switchTab(page, pushState, extraParams) {
     tabs.forEach(function(t) { t.classList.remove('active'); });
     var target = document.querySelector('#navTabs a[data-page="' + page + '"]');
     if (target) target.classList.add('active');
-    frame.src = page + '?embedded=1';
+    var src = page + '?embedded=1';
+    if (extraParams) src += '&' + extraParams.replace(/^\?/, '');
+    frame.src = src;
     if (pushState !== false) {
       history.pushState({ page: page }, '', '#' + page.replace('.html', ''));
     }
@@ -93,6 +95,12 @@
   }
   switchTab(initialPage, false);
   history.replaceState({ page: initialPage }, '', '#' + initialPage.replace('.html', ''));
+
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'switchTab') {
+      switchTab(e.data.page, true, e.data.params);
+    }
+  });
 </script>
 
 </body>

@@ -282,10 +282,14 @@ function buildResultCard(r, source) {
 }
 
 function goTo(source, corp, date) {
-  var url = source === 'enroll' ? 'card_funnel_dashboard.html' : 'limit_increase_dashboard.html';
-  url += '?corp=' + encodeURIComponent(corp);
-  if (date) url += '&date=' + encodeURIComponent(date);
-  window.location.href = url;
+  var page = source === 'enroll' ? 'card_funnel_dashboard.html' : 'limit_increase_dashboard.html';
+  var params = 'corp=' + encodeURIComponent(corp);
+  if (date) params += '&date=' + encodeURIComponent(date);
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'switchTab', page: page, params: params }, '*');
+  } else {
+    window.location.href = page + '?' + params;
+  }
 }
 
 function esc(str) {
