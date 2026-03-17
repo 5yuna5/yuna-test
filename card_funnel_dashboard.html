@@ -521,7 +521,7 @@
   </div>
 
   <!-- ── 카드정보 입력 병목 분석 ── -->
-  <div class="section" id="depthSection">
+  <div class="section" id="depthSection" style="display:none">
     <div class="section-title collapse-toggle" onclick="toggleCollapse(this)" style="display:flex;align-items:center;gap:8px">
       <span><span class="arrow">▶</span> 카드정보 입력 병목 분석</span>
       <span style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:8px">카드신청(전자서명) 미완료 법인의 현재 정체 단계</span>
@@ -749,7 +749,7 @@ function applyFilter() {
     // 이미 try-catch로 감싸져 있으므로 여기서는 패스
   });
   if (records.length > 0 && !document.querySelector('#detailTableInner tbody tr[data-corp]')) {
-    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="9" style="color:red;padding:12px">디버그: records=' + records.length + '건이지만 테이블 미렌더링. 콘솔(F12)을 확인하세요.</td></tr></tbody>';
+    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="10" style="color:red;padding:12px">디버그: records=' + records.length + '건이지만 테이블 미렌더링. 콘솔(F12)을 확인하세요.</td></tr></tbody>';
   }
 
   // URL parameter persistence
