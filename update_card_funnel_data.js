@@ -117,26 +117,50 @@ function parseLimitMessages(messages) {
   return brnMap;
 }
 
-// 서류보완 메시지 파싱 (C057EMUTZQR)
+// 서류보완 메시지 파싱 (C057EMUTZQR) — search.messages 결과 호환
 function parseDocMessages(messages) {
-  const brnMap = new Map(); // brn → { memo, link, cardCo }
+  const brnMap = new Map();
   for (const msg of messages) {
-    if (msg.subtype !== 'bot_message') continue;
     const text = msg.text || '';
     const brnMatch = text.match(/사업자번호:\s*([\d-]+)/);
     if (!brnMatch) continue;
     const brn = brnMatch[1].replace(/-/g, '');
-    if (brnMap.has(brn)) continue; // keep latest
+    if (brnMap.has(brn)) continue;
     const memoMatch = text.match(/서류보완메모:\s*(.+?)(?:\n|$)/);
     const cardCoMatch = text.match(/\[(\S+?)_입회서류/);
-    const link = `https://gowid.slack.com/archives/C057EMUTZQR/p${msg.ts.replace('.', '')}`;
+    const ts = msg.ts || '';
+    const link = ts ? `https://gowid.slack.com/archives/C057EMUTZQR/p${ts.replace('.', '')}` : '';
     brnMap.set(brn, {
       memo: (memoMatch ? memoMatch[1].trim() : ''),
-      link: link,
+      link,
       cardCo: (cardCoMatch ? cardCoMatch[1] : ''),
     });
   }
   return brnMap;
+}
+
+// search.messages로 채널 내 메시지 검색 (봇 미가입 채널용)
+async function searchChannelMessages(channelId, token) {
+  if (!token) return [];
+  const messages = [];
+  let page = 1;
+  do {
+    const q = encodeURIComponent(`in:<#${channelId}> 서류보완메모`);
+    const url = `https://slack.com/api/search.messages?query=${q}&count=100&sort=timestamp&sort_dir=desc&page=${page}`;
+    const resp = await slackGet(url, token);
+    if (!resp.ok) {
+      console.log(`  ⚠ Slack search in ${channelId}: ${resp.error}`);
+      break;
+    }
+    const matches = (resp.messages && resp.messages.matches) || [];
+    if (matches.length === 0) break;
+    messages.push(...matches);
+    const totalPages = (resp.messages && resp.messages.paging && resp.messages.paging.pages) || 1;
+    if (page >= totalPages || page >= 20) break;
+    page++;
+    await new Promise(r => setTimeout(r, 1000));
+  } while (true);
+  return messages;
 }
 
 async function fetchSlackComm(companyNames) {
@@ -524,11 +548,13 @@ async function main() {
 
   // ─── Slack 채널 데이터 수집 (한도산출 + 서류보완) ───
   console.log('\n📨 Slack 채널 데이터 수집 중...');
-  const [limitMsgs, docMsgs] = await Promise.all([
-    fetchChannelMessages('C04MCEHMV0V', '2025-01-01', SLACK_BOT_TOKEN),
-    fetchChannelMessages('C057EMUTZQR', '2025-01-01', SLACK_BOT_TOKEN),
-  ]);
-  console.log(`  한도산출 메시지: ${limitMsgs.length}건, 서류보완 메시지: ${docMsgs.length}건`);
+  // 한도산출: Bot Token으로 conversations.history
+  const limitMsgs = await fetchChannelMessages('C04MCEHMV0V', '2025-01-01', SLACK_BOT_TOKEN);
+  console.log(`  한도산출 메시지: ${limitMsgs.length}건`);
+  // 서류보완: User Token으로 search.messages (봇 미가입 채널)
+  await new Promise(r => setTimeout(r, 2000)); // rate limit 대기
+  const docMsgs = await searchChannelMessages('C057EMUTZQR', SLACK_USER_TOKEN);
+  console.log(`  서류보완 메시지: ${docMsgs.length}건`);
 
   const limitMap = parseLimitMessages(limitMsgs);
   const docMap = parseDocMessages(docMsgs);
