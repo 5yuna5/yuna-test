@@ -187,12 +187,13 @@ async function fetchSLAData() {
     SELECT
       FORMAT_DATETIME('%Y-%m', initialized_at) AS month,
       COUNT(*) AS completed_cnt,
-      ROUND(AVG(limit_check_duration), 1) AS sla_limit_check,
-      ROUND(AVG(net_gowid_review_duration), 1) AS sla_gowid_review,
-      ROUND(AVG(application_submit_duration), 1) AS sla_app_submit,
-      ROUND(AVG(card_co_review_duration), 1) AS sla_card_co_review,
-      ROUND(AVG(gowid_review_duration), 1) AS sla_gowid_total,
-      ROUND(AVG(total_review_duration), 1) AS sla_total,
+      ROUND(AVG(CASE WHEN limit_calculating_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(limit_calculating_at, initialized_at, HOUR), 0) / 24.0 END), 1) AS sla_limit_check,
+      ROUND(AVG(CASE WHEN gowid_approved_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(gowid_approved_at, initialized_at, HOUR), 0) / 24.0 END), 1) AS sla_gowid_review,
+      ROUND(AVG(CASE WHEN application_submitted_at IS NOT NULL AND gowid_approved_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(application_submitted_at, gowid_approved_at, HOUR), 0) / 24.0 END), 1) AS sla_app_submit,
+      ROUND(AVG(CASE WHEN card_co_approved_at IS NOT NULL AND card_co_pending_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(card_co_approved_at, card_co_pending_at, HOUR), 0) / 24.0
+        WHEN card_co_rejected_at IS NOT NULL AND card_co_pending_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(card_co_rejected_at, card_co_pending_at, HOUR), 0) / 24.0 END), 1) AS sla_card_co_review,
+      ROUND(AVG(CASE WHEN gowid_approved_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(gowid_approved_at, initialized_at, HOUR), 0) / 24.0 END), 1) AS sla_gowid_total,
+      ROUND(AVG(GREATEST(DATETIME_DIFF(COALESCE(card_co_approved_at, gowid_rejected_at, card_co_rejected_at, canceled_at), initialized_at, HOUR), 0) / 24.0), 1) AS sla_total,
       ROUND(AVG(days_elapsed), 1) AS avg_days_elapsed,
       -- SLA 초과 비율
       ROUND(SAFE_DIVIDE(COUNTIF(is_limit_check_duration_over), COUNT(*)) * 100, 1) AS pct_limit_check_over,
@@ -251,7 +252,8 @@ async function fetchDetailData() {
       FORMAT_DATETIME('%Y-%m-%d', a.card_co_approved_at) AS approved_date,
       FORMAT_DATETIME('%Y-%m-%d', a.gowid_rejected_at) AS rejected_date,
       FORMAT_DATETIME('%Y-%m-%d', a.card_co_rejected_at) AS card_rejected_date,
-      a.total_review_duration AS total_days,
+      CASE WHEN a.card_co_approved_at IS NOT NULL OR a.gowid_rejected_at IS NOT NULL OR a.card_co_rejected_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(COALESCE(a.card_co_approved_at, a.gowid_rejected_at, a.card_co_rejected_at), a.initialized_at, HOUR), 0) / 24.0, 1) END AS total_days,
       FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
       IFNULL(c.assigned_am, '') AS assigned_am
     FROM \`gowid-prd.mart_limit_application.application_status\` a
@@ -296,8 +298,10 @@ async function fetchCardCoData() {
       COUNT(card_co_approved_at) AS approved,
       COUNT(card_co_rejected_at) AS rejected,
       COUNT(gowid_rejected_at) AS gowid_rejected,
-      ROUND(AVG(card_co_review_duration), 1) AS avg_card_review,
-      ROUND(AVG(total_review_duration), 1) AS avg_total
+      ROUND(AVG(CASE WHEN card_co_approved_at IS NOT NULL AND card_co_pending_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(card_co_approved_at, card_co_pending_at, HOUR), 0) / 24.0
+        WHEN card_co_rejected_at IS NOT NULL AND card_co_pending_at IS NOT NULL THEN GREATEST(DATETIME_DIFF(card_co_rejected_at, card_co_pending_at, HOUR), 0) / 24.0 END), 1) AS avg_card_review,
+      ROUND(AVG(CASE WHEN card_co_approved_at IS NOT NULL OR gowid_rejected_at IS NOT NULL OR card_co_rejected_at IS NOT NULL OR canceled_at IS NOT NULL
+        THEN GREATEST(DATETIME_DIFF(COALESCE(card_co_approved_at, gowid_rejected_at, card_co_rejected_at, canceled_at), initialized_at, HOUR), 0) / 24.0 END), 1) AS avg_total
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
       AND initialized_at >= '2025-01-01'
@@ -340,11 +344,19 @@ async function fetchRecordData() {
       ROUND(COALESCE(CASE WHEN a.gowid_rejected_at IS NULL THEN a.gowid_approved_limit_amount END, 0) / 10000, 0) AS al,
       ROUND(COALESCE(a.current_limit_amount, 0) / 10000, 0) AS cl,
       ROUND(COALESCE(a.requested_limit_amount, 0) / 10000, 0) AS rl,
-      a.total_review_duration AS td,
-      a.card_co_review_duration AS cd,
-      a.net_gowid_review_duration AS nd,
-      a.limit_check_duration AS ld,
-      a.application_submit_duration AS sd,
+      CASE WHEN a.card_co_approved_at IS NOT NULL OR a.gowid_rejected_at IS NOT NULL OR a.card_co_rejected_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(COALESCE(a.card_co_approved_at, a.gowid_rejected_at, a.card_co_rejected_at), a.initialized_at, HOUR), 0) / 24.0, 1) END AS td,
+      CASE WHEN a.card_co_approved_at IS NOT NULL AND a.card_co_pending_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(a.card_co_approved_at, a.card_co_pending_at, HOUR), 0) / 24.0, 1)
+        WHEN a.card_co_rejected_at IS NOT NULL AND a.card_co_pending_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(a.card_co_rejected_at, a.card_co_pending_at, HOUR), 0) / 24.0, 1)
+        END AS cd,
+      CASE WHEN a.gowid_approved_at IS NOT NULL AND a.initialized_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(a.gowid_approved_at, a.initialized_at, HOUR), 0) / 24.0, 1) END AS nd,
+      CASE WHEN a.limit_calculating_at IS NOT NULL AND a.initialized_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(a.limit_calculating_at, a.initialized_at, HOUR), 0) / 24.0, 1) END AS ld,
+      CASE WHEN a.application_submitted_at IS NOT NULL AND a.gowid_approved_at IS NOT NULL
+        THEN ROUND(GREATEST(DATETIME_DIFF(a.application_submitted_at, a.gowid_approved_at, HOUR), 0) / 24.0, 1) END AS sd,
       CASE WHEN a.card_co_approved_at IS NOT NULL OR a.gowid_rejected_at IS NOT NULL
                 OR a.card_co_rejected_at IS NOT NULL OR a.canceled_at IS NOT NULL THEN 1 ELSE 0 END AS done,
       CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
