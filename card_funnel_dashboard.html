@@ -527,7 +527,7 @@
       <span style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:8px">카드신청(전자서명) 미완료 법인의 현재 정체 단계</span>
     </div>
     <div class="collapse-body">
-      <div class="card" id="depthAnalysis" style="padding:16px"></div>
+      <div class="card" id="depthAnalysis" style="padding:16px;display:none"></div>
     </div>
   </div>
 
@@ -788,9 +788,9 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s; re
 // ─── CRM TEXT SANITIZE ───
 function sanitizeCRM(text) {
   if (!text) return '';
-  var el = document.createElement('div');
-  el.innerHTML = text;
-  text = el.textContent || el.innerText || '';
+  // HTML 엔티티 디코딩 (innerHTML 미사용 — XSS 방지)
+  text = text.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&#x([0-9a-fA-F]+);/g, function(_,h){return String.fromCharCode(parseInt(h,16))}).replace(/&#(\d+);/g, function(_,d){return String.fromCharCode(d)});
+  text = text.replace(/<[^>]*>/g, '');
   text = text.replace(/```[^`]*```/g, '').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
   return text.trim();
 }
@@ -2719,7 +2719,7 @@ document.addEventListener('keydown', function(e) {
     <a href="#funnelSection">퍼널</a>
     <a href="#trendSection">트렌드</a>
     <a href="#slaSection">SLA</a>
-    <a href="#depthSection">입력 병목</a>
+    <!-- <a href="#depthSection">입력 병목</a> -->
     <a href="#detailSection">건별 상세</a>
     <a href="#cardCoCommSection">카드사 커뮤니케이션</a>
   </div>
