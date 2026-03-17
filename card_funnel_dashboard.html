@@ -674,8 +674,10 @@ function getFilteredRecords() {
   const start = document.getElementById('filterStart').value;
   const end = document.getElementById('filterEnd').value;
   const am = document.getElementById('filterAM').value;
-  const cc = document.getElementById('filterCardCo').value;
-  const corpQ = (document.getElementById('filterCorpSearch').value || '').toLowerCase().trim();
+  var ccEl = document.getElementById('filterCardCo');
+  var corpEl = document.getElementById('filterCorpSearch');
+  const cc = ccEl ? ccEl.value : '';
+  const corpQ = corpEl ? corpEl.value.toLowerCase().trim() : '';
   return RECORD_DATA.filter(r => {
     const dt = getRecordDate(r);
     if (dateMode === 'issued' && !dt) return false; // 발급일 모드에서 미발급 건 제외
