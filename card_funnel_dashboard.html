@@ -749,18 +749,18 @@ function applyFilter() {
   document.getElementById('filterInfo').textContent = `${modeLabel} 기준 ${subCount}건(신청) / ${records.length}건(전체)`;
   document.getElementById('periodBadge').textContent = (start && end ? `${start} ~ ${end}` : '전체 기간') + ` (${modeLabel})`;
 
-  buildKPIs(funnel, sla);
-  buildAlerts(records);
-  buildTodoPanel(records.filter(function(r){ return !r.na; }));
-  buildFunnel(funnel);
+  try { buildKPIs(funnel, sla); } catch(e) { console.error('buildKPIs:', e); }
+  try { buildAlerts(records); } catch(e) { console.error('buildAlerts:', e); }
+  try { buildTodoPanel(records.filter(function(r){ return !r.na; })); } catch(e) { console.error('buildTodoPanel:', e); }
+  try { buildFunnel(funnel); } catch(e) { console.error('buildFunnel:', e); }
   try { buildMonthlyTrend(); } catch(e) { console.warn('buildMonthlyTrend:', e); }
   try { buildDailyTrend(records); } catch(e) { console.warn('buildDailyTrend:', e); }
-  buildMonthlyTable(records);
-  buildSLA(sla);
-  buildAMTable(records);
-  buildDepthAnalysis(records);
-  buildDetailTable(records);
-  buildCardCoComm();
+  try { buildMonthlyTable(records); } catch(e) { console.error('buildMonthlyTable:', e); }
+  try { buildSLA(sla); } catch(e) { console.error('buildSLA:', e); }
+  try { buildAMTable(records); } catch(e) { console.error('buildAMTable:', e); }
+  try { buildDepthAnalysis(records); } catch(e) { console.error('buildDepthAnalysis:', e); }
+  try { buildDetailTable(records); } catch(e) { console.error('buildDetailTable:', e); }
+  try { buildCardCoComm(); } catch(e) { console.error('buildCardCoComm:', e); }
 
   // URL parameter persistence
   var params = new URLSearchParams();
@@ -2578,7 +2578,7 @@ function init() {
     }
   });
 
-  initMonthSelect();
+  try { initMonthSelect(); } catch(e) { console.error('initMonthSelect:', e); }
   applyFilter();
 
   // URL corp 파라미터: corp_search.html에서 넘어왔을 때 자동 필터 조정 + 하이라이트
