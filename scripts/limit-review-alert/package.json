@@ -1,0 +1,18 @@
+{
+  "name": "limit-review-alert",
+  "version": "1.0.0",
+  "description": "한도상향/카드사추가 카드사 심사 대기 알림",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.1.1",
+    "@slack/web-api": "^7.14.1",
+    "dotenv": "^17.3.1",
+    "googleapis": "^171.4.0"
+  }
+}

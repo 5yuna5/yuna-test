@@ -20,7 +20,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: pm/context/card/operations/limit-review-alert
+        working-directory: scripts/limit-review-alert
         run: npm install
 
       - name: Write BigQuery credentials
@@ -31,5 +31,5 @@ jobs:
           BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
 
       - name: Sync to Google Sheets
-        working-directory: pm/context/card/operations/limit-review-alert
+        working-directory: scripts/limit-review-alert
         run: node sheets-sync.js
