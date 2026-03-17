@@ -116,10 +116,15 @@
 <body>
 
 <div class="nav-tabs" id="navTabsLocal">
-  <a href="corp_search.html" class="active">법인 검색</a>
+  <a href="corp_search.html" class="active">&#128269; 법인 검색</a>
   <a href="card_funnel_dashboard.html">신규 입회 퍼널</a>
   <a href="limit_increase_dashboard.html">한도상향 퍼널</a>
 </div>
+<script>
+  if (window.location.search.includes('embedded=1')) {
+    document.getElementById('navTabsLocal').style.display = 'none';
+  }
+</script>
 
 <div class="container">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">

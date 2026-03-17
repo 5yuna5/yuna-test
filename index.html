@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoWid 퍼널 대시보드</title>
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-secondary: #e8edf4;
+      --border-strong: rgba(30,41,59,0.18);
+      --text-muted: #6b7280;
+      --text-strong: #0f172a;
+      --primary: #3b82f6;
+      --primary-dim: rgba(59,130,246,0.08);
+    }
+    html.dark-mode {
+      --bg-secondary: #0f172a;
+      --border-strong: rgba(148,163,184,0.22);
+      --text-muted: #7b8ba3;
+      --text-strong: #f1f5f9;
+      --primary: #5b9cf6;
+      --primary-dim: rgba(91,156,246,0.12);
+    }
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column;
+      background: var(--bg-secondary);
+    }
+    .nav-tabs {
+      display: flex; gap: 0; background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-strong); padding: 0 32px;
+      flex-shrink: 0;
+    }
+    .nav-tabs a {
+      display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 600;
+      color: var(--text-muted); text-decoration: none; border-bottom: 2px solid transparent;
+      transition: all 0.15s; cursor: pointer;
+    }
+    .nav-tabs a:hover { color: var(--text-strong); background: var(--primary-dim); }
+    .nav-tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
+    iframe {
+      flex: 1; border: none; width: 100%;
+    }
+    @media (max-width: 768px) {
+      .nav-tabs { padding: 0 12px; }
+      .nav-tabs a { padding: 8px 14px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="nav-tabs" id="navTabs">
+  <a data-page="corp_search.html">&#128269; 법인 검색</a>
+  <a data-page="card_funnel_dashboard.html">신규 입회 퍼널</a>
+  <a data-page="limit_increase_dashboard.html">한도상향 퍼널</a>
+</div>
+
+<iframe id="contentFrame"></iframe>
+
+<script>
+  var tabs = document.querySelectorAll('#navTabs a');
+  var frame = document.getElementById('contentFrame');
+
+  function switchTab(page, pushState) {
+    tabs.forEach(function(t) { t.classList.remove('active'); });
+    var target = document.querySelector('#navTabs a[data-page="' + page + '"]');
+    if (target) target.classList.add('active');
+    frame.src = page + '?embedded=1';
+    if (pushState !== false) {
+      history.pushState({ page: page }, '', '#' + page.replace('.html', ''));
+    }
+  }
+
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function(e) {
+      e.preventDefault();
+      switchTab(this.dataset.page);
+    });
+  });
+
+  window.addEventListener('popstate', function(e) {
+    if (e.state && e.state.page) switchTab(e.state.page, false);
+  });
+
+  // 초기 로드: hash 기반 또는 기본값
+  var hash = location.hash.replace('#', '');
+  var initialPage = 'card_funnel_dashboard.html';
+  if (hash) {
+    var match = document.querySelector('#navTabs a[data-page="' + hash + '.html"]');
+    if (match) initialPage = hash + '.html';
+  }
+  switchTab(initialPage, false);
+  history.replaceState({ page: initialPage }, '', '#' + initialPage.replace('.html', ''));
+</script>
+
+</body>
+</html>
