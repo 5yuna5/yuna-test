@@ -1,0 +1,35 @@
+name: Limit Review Sheets Sync
+
+on:
+  schedule:
+    # 매일 한국시간 오전 9:00 (UTC 0:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 수동 실행도 가능
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: pm/context/card/operations/limit-review-alert
+        run: npm install
+
+      - name: Write BigQuery credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Sync to Google Sheets
+        working-directory: pm/context/card/operations/limit-review-alert
+        run: node sheets-sync.js
