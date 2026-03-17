@@ -399,7 +399,7 @@
 
 <header>
   <div class="header-left">
-    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.5</span></h1>
+    <h1>신규 입회 퍼널 대시보드 <span style="font-size:11px;font-weight:400;color:var(--text-muted)">V1.6</span></h1>
     <p>mart_limit_application.card_application_funnel | 업데이트: 2026-03-17 | <span id="freshness" style="font-weight:500"></span></p>
   </div>
   <div class="header-right">
@@ -2766,6 +2766,16 @@ document.addEventListener('keydown', function(e) {
   <div class="modal" style="max-width:560px;max-height:80vh;overflow-y:auto">
     <h3>변경 이력</h3>
     <div style="font-size:12px;color:var(--text)">
+      <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.6</strong> <span style="color:var(--text-muted)">2026-03-17</span>
+        <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
+          <li><strong>[기능]</strong> 한도 0원 구분 — 산출불가 vs 0원산출 분리 (퍼널·KPI·건별상세·사이드패널)</li>
+          <li><strong>[기능]</strong> 한도정보 컬럼 추가 — 산출불가 유형·사유, 유효한도 금액 표시 + Slack 딥링크</li>
+          <li><strong>[기능]</strong> 서류보완·적체사유 — 카드사 커뮤니케이션 섹션에 #bot-법인카드-입회서류보완 채널 데이터 연동</li>
+          <li><strong>[데이터]</strong> #bot-법인카드-한도산출 채널 메시지 연동 — 산출불가 사유, 한도금액 자동 수집</li>
+          <li><strong>[데이터]</strong> #bot-법인카드-입회서류보완 채널 메시지 연동 — 서류보완 메모 자동 수집</li>
+          <li><strong>[UX]</strong> 사이드 패널에 한도결과 상세 카드 + 서류보완 요청 카드 + Slack 딥링크 추가</li>
+        </ul>
+      </div>
       <div style="margin-bottom:16px"><strong style="color:var(--primary)">V1.5</strong> <span style="color:var(--text-muted)">2026-03-16</span>
         <ul style="margin:6px 0 0 16px;color:var(--text-muted)">
           <li><strong>[UX]</strong> 플로팅 네비게이션 접이식으로 개선 — 콘텐츠 가림 해소</li>
