@@ -117,10 +117,11 @@ function parseLimitMessages(messages) {
   return brnMap;
 }
 
-// 서류보완 메시지 파싱 (C057EMUTZQR) — search.messages 결과 호환
+// 서류보완 메시지 파싱 (C057EMUTZQR)
 function parseDocMessages(messages) {
   const brnMap = new Map();
   for (const msg of messages) {
+    if (msg.subtype && msg.subtype !== 'bot_message') continue;
     const text = msg.text || '';
     const brnMatch = text.match(/사업자번호:\s*([\d-]+)/);
     if (!brnMatch) continue;
@@ -560,9 +561,8 @@ async function main() {
   // 한도산출: Bot Token으로 conversations.history
   const limitMsgs = await fetchChannelMessages('C04MCEHMV0V', '2025-01-01', SLACK_BOT_TOKEN);
   console.log(`  한도산출 메시지: ${limitMsgs.length}건`);
-  // 서류보완: User Token으로 search.messages (봇 미가입 채널)
-  await new Promise(r => setTimeout(r, 2000)); // rate limit 대기
-  const docMsgs = await searchChannelMessages('C057EMUTZQR', SLACK_USER_TOKEN);
+  // 서류보완: Bot Token으로 conversations.history (봇 채널 가입 완료)
+  const docMsgs = await fetchChannelMessages('C057EMUTZQR', '2025-01-01', SLACK_BOT_TOKEN);
   console.log(`  서류보완 메시지: ${docMsgs.length}건`);
 
   const limitMap = parseLimitMessages(limitMsgs);
