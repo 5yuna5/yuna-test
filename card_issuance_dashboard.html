@@ -982,6 +982,7 @@
 </div>
 <script>
 (function(){
+  // NOTE: 캐주얼 접근 제한용 (보안 기능 아님). 서버 인증 불가한 정적 페이지 구조.
   const PIN_CODE = '1010';
   const SESSION_KEY = 'dashboard_pin_ok';
   let entered = '';
@@ -1821,6 +1822,11 @@ function sumData(rows) {
   return total;
 }
 
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function pct(num, den) {
   if (!den || den === 0) return 0;
   return Math.round((num / den) * 1000) / 10;
@@ -2129,7 +2135,7 @@ function buildMonthlyTable(rows) {
     html += '<tr>';
     cols.forEach(c => {
       if (c.key === 'label') {
-        html += `<td>${row[c.key]}</td>`;
+        html += `<td>${escapeHtml(row[c.key])}</td>`;
       } else if (c.key === 'conv_rate') {
         const cls = convRate < 20 ? 'cell-bad' : convRate > 40 ? 'cell-good' : '';
         html += `<td class="${cls}">${convRate}%</td>`;
@@ -2882,7 +2888,7 @@ function buildCohortProfile() {
       : '';
     const hcDisplay = r.avg_hc != null ? r.avg_hc.toFixed(1) : '-';
     return `<tr>
-      <td style="text-align:left;font-weight:500;">${r.name}</td>
+      <td style="text-align:left;font-weight:500;">${escapeHtml(r.name)}</td>
       <td style="text-align:center;">${r.cnt}</td>
       <td style="text-align:center;">${pct}%${diffBadge}</td>
       <td style="text-align:center;">${r.avg_limit.toLocaleString()}</td>
@@ -3187,7 +3193,7 @@ function renderModalRows(rows) {
   const tbody = document.getElementById('modalTbody');
   tbody.innerHTML = rows.map(r =>
     '<tr>' + _modalCols.map(c => {
-      const val = c.render ? c.render(r) : (r[c.key] ?? '-');
+      const val = c.render ? c.render(r) : escapeHtml(r[c.key] ?? '-');
       const cls = c.cls || '';
       return `<td class="${cls}">${val}</td>`;
     }).join('') + '</tr>'
@@ -3606,8 +3612,8 @@ function buildAlertBanners(filtered, filteredUsage) {
     <div class="alert-banner alert-${a.severity}${isResolved ? ' resolved' : ''}" data-alert-id="${a.id}" ${isResolved ? 'style="display:none;"' : ''}>
       <div class="alert-icon">${a.severity === 'red' ? '🚨' : a.severity === 'amber' ? '⚠️' : '📌'}</div>
       <div class="alert-body">
-        <div class="alert-title">${a.title}</div>
-        <div class="alert-detail">${a.detail}</div>
+        <div class="alert-title">${escapeHtml(a.title)}</div>
+        <div class="alert-detail">${escapeHtml(a.detail)}</div>
         <div style="margin-top:4px;font-size:12px;font-weight:600;color:var(--text-strong);">→ ${a.action}</div>
         <div class="alert-actions">
           <select class="alert-assignee" onchange="assignAlert('${a.id}', this)">
