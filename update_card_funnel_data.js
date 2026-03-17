@@ -255,23 +255,23 @@ async function fetchRecordData() {
           WHEN 'LOTTE' THEN '롯데카드'
           ELSE ci.card_co
         END AS card_company,
-        -- SLA
+        -- SLA (HOUR 단위 → 소수점 일수)
         CASE WHEN c.latest_approved_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(c.latest_approved_at, c.latest_application_created_at, DAY), 0) END AS d1,
+          THEN ROUND(GREATEST(DATETIME_DIFF(c.latest_approved_at, c.latest_application_created_at, HOUR), 0) / 24.0, 1) END AS d1,
         CASE WHEN m.signup_at IS NOT NULL AND c.latest_approved_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(m.signup_at, c.latest_approved_at, DAY), 0) END AS d2,
+          THEN ROUND(GREATEST(DATETIME_DIFF(m.signup_at, c.latest_approved_at, HOUR), 0) / 24.0, 1) END AS d2,
         CASE WHEN lr.lr_at IS NOT NULL AND m.signup_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(lr.lr_at, m.signup_at, DAY), 0) END AS d3,
+          THEN ROUND(GREATEST(DATETIME_DIFF(lr.lr_at, m.signup_at, HOUR), 0) / 24.0, 1) END AS d3,
         CASE WHEN ci.ci_issued IS NOT NULL AND lr.lr_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(ci.ci_issued, lr.lr_at, DAY), 0) END AS d4,
+          THEN ROUND(GREATEST(DATETIME_DIFF(ci.ci_issued, lr.lr_at, HOUR), 0) / 24.0, 1) END AS d4,
         CASE WHEN ci.ci_issued IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(ci.ci_issued, c.latest_application_created_at, DAY), 0) END AS dt,
+          THEN ROUND(GREATEST(DATETIME_DIFF(ci.ci_issued, c.latest_application_created_at, HOUR), 0) / 24.0, 1) END AS dt,
         CASE WHEN cd.first_spend IS NOT NULL AND ci.ci_issued IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, DAY), 0) END AS d5,
+          THEN ROUND(GREATEST(DATETIME_DIFF(cd.first_spend, ci.ci_issued, HOUR), 0) / 24.0, 1) END AS d5,
         CASE WHEN ci.ci_applied IS NOT NULL AND lr.lr_at IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(ci.ci_applied, lr.lr_at, DAY), 0) END AS s3,
+          THEN ROUND(GREATEST(DATETIME_DIFF(ci.ci_applied, lr.lr_at, HOUR), 0) / 24.0, 1) END AS s3,
         CASE WHEN ci.ci_issued IS NOT NULL AND ci.ci_applied IS NOT NULL
-          THEN GREATEST(DATETIME_DIFF(ci.ci_issued, ci.ci_applied, DAY), 0) END AS s4,
+          THEN ROUND(GREATEST(DATETIME_DIFF(ci.ci_issued, ci.ci_applied, HOUR), 0) / 24.0, 1) END AS s4,
         -- 보증금/특별심사 (실제 ODS 테이블 기반)
         IFNULL(dep.deposit_applied, 0) AS deposit_applied,
         IFNULL(dep.deposit_confirmed, 0) AS deposit_confirmed,
