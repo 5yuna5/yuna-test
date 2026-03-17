@@ -30,6 +30,45 @@ jobs:
         env:
           BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
 
-      - name: Sync to Google Sheets
+      - name: Sync to Google Sheets (1st attempt)
+        id: sync1
         working-directory: scripts/limit-review-alert
+        continue-on-error: true
         run: node sheets-sync.js
+
+      - name: Retry after 30s (2nd attempt)
+        id: sync2
+        if: steps.sync1.outcome == 'failure'
+        working-directory: scripts/limit-review-alert
+        continue-on-error: true
+        run: |
+          echo "1차 실패, 30초 후 재시도..."
+          sleep 30
+          node sheets-sync.js
+
+      - name: Retry after 60s (3rd attempt)
+        id: sync3
+        if: steps.sync2.outcome == 'failure'
+        working-directory: scripts/limit-review-alert
+        continue-on-error: true
+        run: |
+          echo "2차 실패, 60초 후 재시도..."
+          sleep 60
+          node sheets-sync.js
+
+      - name: Notify failure via Slack DM
+        if: steps.sync1.outcome == 'failure' && steps.sync2.outcome == 'failure' && steps.sync3.outcome == 'failure'
+        run: |
+          curl -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "channel": "D09HW23FF6K",
+              "text": "🚨 한도 심사 대기 시트 동기화 실패 (3회 재시도 후에도 실패)\n\n확인: https://github.com/5yuna5/yuna-test/actions/runs/${{ github.run_id }}"
+            }'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Fail job if all attempts failed
+        if: steps.sync1.outcome == 'failure' && steps.sync2.outcome == 'failure' && steps.sync3.outcome == 'failure'
+        run: exit 1
