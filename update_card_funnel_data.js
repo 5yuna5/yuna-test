@@ -27,6 +27,16 @@ const SLACK_USER_TOKEN = (() => {
   } catch { return ''; }
 })();
 
+// Slack 봇 토큰 (채널 메시지 조회용)
+const SLACK_BOT_TOKEN = (() => {
+  try {
+    const envPath = path.join(__dirname, 'pm/context/card/operations/crm-slack-bot/.env');
+    const env = fs.readFileSync(envPath, 'utf8');
+    const m = env.match(/SLACK_BOT_TOKEN=(.+)/);
+    return m ? m[1].trim() : '';
+  } catch { return ''; }
+})();
+
 const bq = new BigQuery({ projectId: PROJECT, keyFilename: KEYFILE, location: LOCATION });
 
 async function query(sql) {
@@ -44,6 +54,89 @@ function slackGet(url, token) {
       res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
     }).on('error', reject);
   });
+}
+
+// ─── Slack 채널 메시지 일괄 조회 (conversations.history) ───
+async function fetchChannelMessages(channelId, oldest, token) {
+  if (!token) return [];
+  const messages = [];
+  let cursor = '';
+  const oldestTs = String(Math.floor(new Date(oldest).getTime() / 1000));
+
+  do {
+    const url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=200&oldest=${oldestTs}` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+    const resp = await slackGet(url, token);
+    if (!resp.ok) {
+      console.log(`  ⚠ Slack channel ${channelId}: ${resp.error}`);
+      break;
+    }
+    messages.push(...(resp.messages || []));
+    cursor = (resp.response_metadata && resp.response_metadata.next_cursor) || '';
+    if (cursor) await new Promise(r => setTimeout(r, 300));
+  } while (cursor);
+
+  return messages;
+}
+
+// 한도산출 메시지 파싱 (C04MCEHMV0V)
+function parseLimitMessages(messages) {
+  const brnMap = new Map(); // brn → { fail, type, reason, amount, link }
+  // messages are newest-first → keep first (latest) per BRN
+  for (const msg of messages) {
+    if (msg.subtype !== 'bot_message') continue;
+    const text = msg.text || '';
+    const brnMatch = text.match(/사업자번호\*?:\s*([\d-]+)/);
+    if (!brnMatch) continue;
+    const brn = brnMatch[1].replace(/-/g, '');
+    if (brnMap.has(brn)) continue;
+
+    const link = `https://gowid.slack.com/archives/C04MCEHMV0V/p${msg.ts.replace('.', '')}`;
+    const typeMatch = text.match(/한도 산출 불가 유형\*?:\s*(.+?)[\n\r>]/);
+    const reasonMatch = text.match(/한도 산출 불가 사유\*?:\s*(.+?)[\n\r>]/);
+
+    if (typeMatch || reasonMatch) {
+      brnMap.set(brn, {
+        fail: true,
+        type: (typeMatch ? typeMatch[1].trim() : ''),
+        reason: (reasonMatch ? reasonMatch[1].trim() : ''),
+        amount: '',
+        link: link,
+      });
+    } else {
+      const amountMatch = text.match(/최대 제공 가능 한도\*?:\s*(.+?)[\n\r>]/);
+      brnMap.set(brn, {
+        fail: false,
+        type: '',
+        reason: '',
+        amount: (amountMatch ? amountMatch[1].trim() : ''),
+        link: link,
+      });
+    }
+  }
+  return brnMap;
+}
+
+// 서류보완 메시지 파싱 (C057EMUTZQR)
+function parseDocMessages(messages) {
+  const brnMap = new Map(); // brn → { memo, link, cardCo }
+  for (const msg of messages) {
+    if (msg.subtype !== 'bot_message') continue;
+    const text = msg.text || '';
+    const brnMatch = text.match(/사업자번호:\s*([\d-]+)/);
+    if (!brnMatch) continue;
+    const brn = brnMatch[1].replace(/-/g, '');
+    if (brnMap.has(brn)) continue; // keep latest
+    const memoMatch = text.match(/서류보완메모:\s*(.+?)(?:\n|$)/);
+    const cardCoMatch = text.match(/\[(\S+?)_입회서류/);
+    const link = `https://gowid.slack.com/archives/C057EMUTZQR/p${msg.ts.replace('.', '')}`;
+    brnMap.set(brn, {
+      memo: (memoMatch ? memoMatch[1].trim() : ''),
+      link: link,
+      cardCo: (cardCoMatch ? cardCoMatch[1] : ''),
+    });
+  }
+  return brnMap;
 }
 
 async function fetchSlackComm(companyNames) {
@@ -246,6 +339,8 @@ async function fetchRecordData() {
         CASE WHEN ci.ci_applied IS NOT NULL THEN 1 ELSE 0 END AS ca,
         CASE WHEN ci.ci_issued IS NOT NULL THEN 1 ELSE 0 END AS cd,
         CASE WHEN cd.first_spend IS NOT NULL THEN 1 ELSE 0 END AS fs,
+        -- 한도 금액 (원시값)
+        lr.lr_amount AS limit_amount,
         -- 발급일
         FORMAT_DATE('%Y-%m-%d', DATE(ci.ci_issued)) AS issued_date,
         -- 카드사
@@ -308,6 +403,7 @@ async function fetchRecordData() {
         CASE WHEN ci_agg.ci_applied IS NOT NULL THEN 1 ELSE 0 END AS ca,
         CASE WHEN ci_agg.ci_issued IS NOT NULL THEN 1 ELSE 0 END AS cd,
         CASE WHEN dim.first_card_spend_at IS NOT NULL THEN 1 ELSE 0 END AS fs,
+        la_check.limit_amount AS limit_amount,
         FORMAT_DATE('%Y-%m-%d', DATE(ci_agg.ci_issued)) AS issued_date,
         CASE ci_agg.card_co
           WHEN 'SHINHAN' THEN '신한카드'
@@ -366,12 +462,14 @@ async function fetchRecordData() {
 
   return rows.map(r => ({
     d: r.submit_date,
+    b: r.brn_key || '',
     c: r.corp_name,
     am: r.am || '',
     sub: Number(r.sub), apr: Number(r.apr), sig: Number(r.sig),
     ls: Number(r.ls), lp: Number(r.lp), lr: Number(r.lr),
     lnz: Number(r.lnz), lz: Number(r.lz),
     ci: Number(r.ci), ca: Number(r.ca), cd: Number(r.cd), fs: Number(r.fs),
+    la: r.limit_amount != null ? Number(r.limit_amount) : null,
     d1: r.d1 != null ? Number(r.d1) : null,
     d2: r.d2 != null ? Number(r.d2) : null,
     d3: r.d3 != null ? Number(r.d3) : null,
@@ -388,6 +486,8 @@ async function fetchRecordData() {
     sr: Number(r.special_requested || 0),
     sa: Number(r.special_approved || 0),
     crm: '',
+    lrf: 0, lrt: '', lrr: '', lrl: '',
+    doc: '', dl: '',
   }));
 }
 
@@ -421,6 +521,40 @@ async function main() {
 
   console.log(`\n📊 조회 완료:`);
   console.log(`  RECORD_DATA: ${records.length}건`);
+
+  // ─── Slack 채널 데이터 수집 (한도산출 + 서류보완) ───
+  console.log('\n📨 Slack 채널 데이터 수집 중...');
+  const [limitMsgs, docMsgs] = await Promise.all([
+    fetchChannelMessages('C04MCEHMV0V', '2025-01-01', SLACK_BOT_TOKEN),
+    fetchChannelMessages('C057EMUTZQR', '2025-01-01', SLACK_BOT_TOKEN),
+  ]);
+  console.log(`  한도산출 메시지: ${limitMsgs.length}건, 서류보완 메시지: ${docMsgs.length}건`);
+
+  const limitMap = parseLimitMessages(limitMsgs);
+  const docMap = parseDocMessages(docMsgs);
+
+  let limitMatched = 0, docMatched = 0;
+  for (const r of records) {
+    if (!r.b) continue;
+    const lm = limitMap.get(r.b);
+    if (lm) {
+      limitMatched++;
+      r.lrf = lm.fail ? 1 : 0;
+      r.lrt = lm.type;
+      r.lrr = lm.reason;
+      r.lrl = lm.link;
+      // 유효한도 금액 (Slack에서 가져온 "최대 제공 가능 한도" 텍스트)
+      if (!lm.fail && lm.amount) r.las = lm.amount;
+    }
+    const dm = docMap.get(r.b);
+    if (dm) {
+      docMatched++;
+      r.doc = dm.memo;
+      r.dl = dm.link;
+    }
+  }
+  console.log(`  한도산출 매칭: ${limitMatched}건 (산출불가: ${records.filter(r => r.lrf).length}건)`);
+  console.log(`  서류보완 매칭: ${docMatched}건`);
 
   // Slack 소통 이력 매칭 (최근 90일 내 미완료 건만)
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
