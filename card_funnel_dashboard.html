@@ -383,15 +383,16 @@
 <body>
 
 <!-- ── NAV TABS ── -->
-<div class="nav-tabs" id="navTabsLocal">
+<div class="nav-tabs" id="navTabsLocal" style="display:none">
   <a href="corp_search.html">&#128269; 법인 검색</a>
   <a href="card_funnel_dashboard.html" class="active">신규 입회 퍼널</a>
   <a href="limit_increase_dashboard.html">한도상향 퍼널</a>
 </div>
 <script>
-  // 임베디드 모드: 부모 래퍼에서 로드 시 nav-tabs 숨김
-  if (window.location.search.includes('embedded=1')) {
-    document.getElementById('navTabsLocal').style.display = 'none';
+  // iframe이 아니면(직접 접근) nav-tabs 표시, iframe이면 숨김 유지
+  if (window.parent === window && !window.location.search.includes('embedded=1')) {
+    document.getElementById('navTabsLocal').style.display = '';
+  } else {
     document.body.classList.add('embedded');
   }
 </script>
