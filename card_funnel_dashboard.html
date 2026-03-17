@@ -2050,7 +2050,7 @@ function buildDetailTable(records) {
   }
 
   if (records.length === 0) {
-    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:24px">데이터 없음</td></tr></tbody>';
+    document.getElementById('detailTableInner').innerHTML = '<tbody><tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:24px">데이터 없음</td></tr></tbody>';
     return;
   }
 
@@ -2079,7 +2079,7 @@ function buildDetailTable(records) {
   var html = '<thead><tr>';
   html += '<th>긴급도</th>';
   html += '<th onclick="toggleDetailSort(\'date\')" style="cursor:pointer">신청일 <span id="sortArrowDate">⇕</span></th><th>법인명</th><th>담당 AM</th><th>현재단계</th><th>한도정보</th>';
-  html += '<th onclick="toggleDetailSort(\'elapsed\')" style="cursor:pointer">경과일 <span id="sortArrowElapsed">⇕</span></th><th>필요 메일</th><th>다음 액션</th><th>서류보완</th><th>최근 소통</th>';
+  html += '<th onclick="toggleDetailSort(\'elapsed\')" style="cursor:pointer">경과일 <span id="sortArrowElapsed">⇕</span></th><th>필요 메일</th><th>다음 액션</th><th>최근 소통</th>';
   html += '</tr></thead><tbody>';
 
   sortedRecords.forEach(function(r) {
@@ -2174,16 +2174,6 @@ function buildDetailTable(records) {
       html += '<td style="font-size:10px;color:var(--text-muted);opacity:0.6">' + esc(mailType) + '</td>';
     }
     html += '<td style="font-size:10px;color:' + (isDone ? 'var(--text-muted)' : 'var(--text)') + '">' + esc(nextAction) + '</td>';
-    // 서류보완 컬럼
-    var docText = r.doc || '';
-    if (docText) {
-      html += '<td style="font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(docText) + '">';
-      html += '<span style="color:var(--warning);font-weight:600">' + esc(docText) + '</span>';
-      if (r.dl) html += ' <a href="' + esc(r.dl) + '" target="_blank" rel="noopener" style="font-size:10px;color:var(--info)" title="Slack에서 보기">🔗</a>';
-      html += '</td>';
-    } else {
-      html += '<td style="font-size:10px;color:var(--text-muted);opacity:0.4">-</td>';
-    }
     var crmText = sanitizeCRM(r.crm || '');
     html += '<td style="font-size:10px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(crmText) + '">' + (crmText ? esc(crmText) : '<span style="color:var(--text-muted);opacity:0.4">-</span>') + '</td>';
     html += '</tr>';
