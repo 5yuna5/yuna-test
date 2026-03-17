@@ -139,26 +139,35 @@ function parseDocMessages(messages) {
   return brnMap;
 }
 
-// search.messages로 채널 내 메시지 검색 (봇 미가입 채널용)
+// search.messages로 채널 내 메시지 검색 (봇 미가입 채널용, rate limit 재시도)
 async function searchChannelMessages(channelId, token) {
   if (!token) return [];
   const messages = [];
   let page = 1;
+  let retries = 0;
   do {
     const q = encodeURIComponent(`in:<#${channelId}> 서류보완메모`);
     const url = `https://slack.com/api/search.messages?query=${q}&count=100&sort=timestamp&sort_dir=desc&page=${page}`;
     const resp = await slackGet(url, token);
     if (!resp.ok) {
+      if (resp.error === 'ratelimited' && retries < 3) {
+        const wait = (resp.headers && resp.headers['retry-after']) ? Number(resp.headers['retry-after']) * 1000 : 5000;
+        console.log(`  ⚠ Slack search rate limited — ${Math.ceil(wait/1000)}초 대기 후 재시도...`);
+        await new Promise(r => setTimeout(r, wait));
+        retries++;
+        continue;
+      }
       console.log(`  ⚠ Slack search in ${channelId}: ${resp.error}`);
       break;
     }
+    retries = 0;
     const matches = (resp.messages && resp.messages.matches) || [];
     if (matches.length === 0) break;
     messages.push(...matches);
     const totalPages = (resp.messages && resp.messages.paging && resp.messages.paging.pages) || 1;
     if (page >= totalPages || page >= 20) break;
     page++;
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 2000));
   } while (true);
   return messages;
 }
