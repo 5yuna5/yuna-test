@@ -327,6 +327,19 @@
     .tab-btn:hover { background: var(--primary-dim); color: var(--primary); }
     .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
+    /* ── COLUMN FILTERS ── */
+    .col-filter-row { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; align-items:center; }
+    .col-filter-row > span { font-size:11px; color:var(--text-muted); margin-right:4px; }
+    .col-filter-btn { position:relative; display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border:1px solid var(--border-strong); border-radius:6px; font-size:11px; color:var(--text-muted); cursor:pointer; background:var(--card); white-space:nowrap; user-select:none; }
+    .col-filter-btn:hover { border-color:var(--primary); color:var(--primary); }
+    .col-filter-btn.active { border-color:var(--primary); color:var(--primary); background:var(--primary-dim); }
+    .col-filter-badge { display:inline-block; min-width:14px; height:14px; line-height:14px; text-align:center; border-radius:7px; font-size:9px; font-weight:700; background:var(--primary); color:#fff; }
+    .col-filter-drop { display:none; position:absolute; top:100%; left:0; margin-top:4px; background:var(--card); border:1px solid var(--border-strong); border-radius:8px; box-shadow:var(--shadow); z-index:100; min-width:160px; max-height:240px; overflow-y:auto; padding:6px 0; }
+    .col-filter-drop.open { display:block; }
+    .col-filter-drop label { display:flex; align-items:center; gap:6px; padding:4px 12px; font-size:11px; color:var(--text); cursor:pointer; white-space:nowrap; }
+    .col-filter-drop label:hover { background:var(--primary-dim); }
+    .col-filter-drop label.all-toggle { font-weight:700; border-bottom:1px solid var(--border); margin-bottom:2px; padding-bottom:6px; }
+
     /* ── DETAIL TABLE SCROLL ── */
     .table-scroll { max-height: 600px; overflow-y: auto; border-radius: var(--radius-sm); }
     .table-scroll::-webkit-scrollbar { width: 6px; }
@@ -687,6 +700,7 @@
       <button class="tab-btn detail-status" onclick="filterDetailStatus('not_submitted', this)">승인미제출</button>
       <input type="text" id="detailSearchInput" placeholder="법인명 검색..." oninput="filterDetailBySearch(this.value)" style="margin-left:auto;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text);font-size:12px;width:180px">
     </div>
+    <div class="col-filter-row" id="colFilterRow"></div>
     <div class="card">
       <div class="table-scroll">
         <table class="data-table" id="detailTable"></table>
@@ -2055,6 +2069,94 @@ function getDetailMailTemplate(r) {
   if (st.indexOf('제출') >= 0) return { template: '카드사 접수 확인', action: '카드사 접수 진행' };
   return { template: '진행 확인 메일', action: '상태 확인' };
 }
+// ─── COLUMN FILTERS (한도상향) ───
+var detailColFilters = { am: new Set(), type: new Set(), cc: new Set(), status: new Set(), elapsed: new Set() };
+
+function getElapsedRange(n) {
+  if (n >= 30) return 'D+30이상';
+  if (n >= 14) return 'D+14~29';
+  if (n >= 7) return 'D+7~13';
+  return 'D+0~6';
+}
+
+function buildColFilterUI(rows) {
+  var cols = [
+    { key: 'am', label: '담당자', extract: function(r) { return r.am || '-'; } },
+    { key: 'type', label: '유형', extract: function(r) { return r.type || '-'; } },
+    { key: 'cc', label: '카드사', extract: function(r) { return r.card_co || '-'; } },
+    { key: 'status', label: '상태', extract: function(r) { return r.status || '-'; } },
+    { key: 'elapsed', label: '경과일', extract: function(r) { return getElapsedRange(r.elapsed || 0); } }
+  ];
+
+  var rowEl = document.getElementById('colFilterRow');
+  if (!rowEl) return;
+  var html = '<span>컬럼 필터</span>';
+
+  cols.forEach(function(col) {
+    var vals = new Set();
+    rows.forEach(function(r) { vals.add(col.extract(r)); });
+    var sortedVals = Array.from(vals).sort();
+    var sel = detailColFilters[col.key];
+    var badge = sel.size > 0 ? ' <span class="col-filter-badge">' + sel.size + '</span>' : '';
+    var active = sel.size > 0 ? ' active' : '';
+
+    html += '<div class="col-filter-btn' + active + '" onclick="toggleColDrop(event,\'' + col.key + '\')">' + col.label + badge + ' ▾';
+    html += '<div class="col-filter-drop" id="cfDrop_' + col.key + '">';
+    html += '<label class="all-toggle"><input type="checkbox" onchange="toggleColAll(\'' + col.key + '\',this)" ' + (sel.size === 0 ? 'checked' : '') + '> 전체</label>';
+    sortedVals.forEach(function(v) {
+      var checked = sel.size === 0 || sel.has(v) ? 'checked' : '';
+      html += '<label><input type="checkbox" value="' + esc(v) + '" ' + checked + ' onchange="onColFilterChange(\'' + col.key + '\')"> ' + esc(v) + '</label>';
+    });
+    html += '</div></div>';
+  });
+  rowEl.innerHTML = html;
+}
+
+function toggleColDrop(e, key) {
+  e.stopPropagation();
+  var drop = document.getElementById('cfDrop_' + key);
+  if (!drop) return;
+  var wasOpen = drop.classList.contains('open');
+  document.querySelectorAll('.col-filter-drop').forEach(function(d) { d.classList.remove('open'); });
+  if (!wasOpen) drop.classList.toggle('open');
+}
+
+function toggleColAll(key, cb) {
+  var drop = document.getElementById('cfDrop_' + key);
+  if (!drop) return;
+  var checks = drop.querySelectorAll('input[type=checkbox]:not([onchange*="toggleColAll"])');
+  checks.forEach(function(c) { c.checked = cb.checked; });
+  if (cb.checked) {
+    detailColFilters[key].clear();
+  } else {
+    detailColFilters[key].clear();
+    checks.forEach(function(c) { detailColFilters[key].add(c.value); });
+  }
+  buildDetailTable();
+}
+
+function onColFilterChange(key) {
+  var drop = document.getElementById('cfDrop_' + key);
+  if (!drop) return;
+  var checks = drop.querySelectorAll('input[type=checkbox]:not([onchange*="toggleColAll"])');
+  var allCb = drop.querySelector('.all-toggle input');
+  var selected = new Set();
+  var allChecked = true;
+  checks.forEach(function(c) {
+    if (c.checked) selected.add(c.value);
+    else allChecked = false;
+  });
+  if (allCb) allCb.checked = allChecked;
+  detailColFilters[key] = allChecked ? new Set() : selected;
+  buildDetailTable();
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.col-filter-btn')) {
+    document.querySelectorAll('.col-filter-drop').forEach(function(d) { d.classList.remove('open'); });
+  }
+});
+
 function buildDetailTable() {
   const start = document.getElementById('filterStart').value;
   const end = document.getElementById('filterEnd').value;
@@ -2090,6 +2192,26 @@ function buildDetailTable() {
     rows = rows.filter(r => !r.done && r.elapsed >= 14);
   } else if (sf === 'warning') {
     rows = rows.filter(r => !r.done && r.elapsed >= 7 && r.elapsed < 14);
+  }
+
+  // Save for column filter UI (after date/AM/CC/type/status filters, before column filters)
+  var preColFilterRows = rows.slice();
+
+  // ─── Column filters ───
+  if (detailColFilters.am.size > 0) {
+    rows = rows.filter(function(r) { return detailColFilters.am.has(r.am || '-'); });
+  }
+  if (detailColFilters.type.size > 0) {
+    rows = rows.filter(function(r) { return detailColFilters.type.has(r.type || '-'); });
+  }
+  if (detailColFilters.cc.size > 0) {
+    rows = rows.filter(function(r) { return detailColFilters.cc.has(r.card_co || '-'); });
+  }
+  if (detailColFilters.status.size > 0) {
+    rows = rows.filter(function(r) { return detailColFilters.status.has(r.status || '-'); });
+  }
+  if (detailColFilters.elapsed.size > 0) {
+    rows = rows.filter(function(r) { return detailColFilters.elapsed.has(getElapsedRange(r.elapsed || 0)); });
   }
 
   // Sort
@@ -2150,6 +2272,9 @@ function buildDetailTable() {
   if (rows.length === 0) html += '<tr><td colspan="14" style="text-align:center;color:var(--text-muted);padding:24px">데이터가 없습니다</td></tr>';
   html += '</tbody>';
   document.getElementById('detailTable').innerHTML = html;
+
+  // Rebuild column filter UI with pre-column-filter data
+  buildColFilterUI(preColFilterRows);
 }
 
 function filterDetailType(filter, btn) {
