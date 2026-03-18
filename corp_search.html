@@ -197,11 +197,11 @@ function doSearch(query) {
     var stage = '', cls = '', detail = '';
     if (r.fs) { stage = '첫사용 완료'; cls = 'completed'; }
     else if (r.cd) { stage = '카드발급 완료·미사용'; cls = 'completed'; detail = r.id ? '발급일 ' + r.id : ''; }
+    else if (r.sa) { stage = '특별심사 승인'; cls = 'completed'; }
+    else if (r.sr) { stage = '특별심사 진행중'; cls = 'pending'; }
     else if (r.lnz) { stage = '유효한도·미발급'; cls = 'progress'; }
     else if (r.lz) {
-      if (r.sa) stage = '특별심사 승인';
-      else if (r.sr) stage = '특별심사 진행중';
-      else if (r.dc) stage = '보증금 확인';
+      if (r.dc) stage = '보증금 확인';
       else if (r.da) stage = '보증금 신청';
       else stage = '한도 0원';
       cls = 'pending';

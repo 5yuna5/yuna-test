@@ -2044,6 +2044,7 @@ function toggleHideUnused() {
 function getElapsedForRecord(r) {
   if (r.fs) return r.dt || 0;
   if (r.cd) return r.id ? daysSince(r.id) : 0;
+  if (r.sa || r.sr) { var lrds = limitResultDate(r); return lrds ? daysSinceDate(lrds) : daysSince(r.d); }
   if (r.lz) { var lrd0 = limitResultDate(r); return lrd0 ? daysSinceDate(lrd0) : daysSince(r.d); }
   if (r.lnz) { var lrd = limitResultDate(r); return lrd ? daysSinceDate(lrd) : daysSince(r.d); }
   if (r.lr) return daysSince(r.d);
@@ -2156,9 +2157,10 @@ document.addEventListener('click', function(e) {
 function getRecordStatus(r) {
   if (r.fs) return '완료';
   if (r.cd) return '발급완료·미사용';
+  // 특별심사는 한도 금액과 무관하게 우선 표시
+  if (r.sa) return '특별심사 승인';
+  if (r.sr) return '특별심사';
   if (r.lz) {
-    if (r.sa) return '특별심사 승인';
-    if (r.sr) return '특별심사';
     if (r.dc) return '보증금 확인';
     if (r.da) return '보증금 신청';
     if (r.lrf) return '산출불가';
@@ -2175,6 +2177,7 @@ function buildDetailTable(records) {
   function getElapsed(r) {
     if (r.fs) return r.dt || 0;
     if (r.cd) return r.id ? daysSince(r.id) : 0;
+    if (r.sa || r.sr) { var lrds = limitResultDate(r); return lrds ? daysSinceDate(lrds) : daysSince(r.d); }
     if (r.lz) { var lrd0 = limitResultDate(r); return lrd0 ? daysSinceDate(lrd0) : daysSince(r.d); }
     if (r.lnz) { var lrd = limitResultDate(r); return lrd ? daysSinceDate(lrd) : daysSince(r.d); }
     if (r.lr) return daysSince(r.d);
@@ -2256,10 +2259,20 @@ function buildDetailTable(records) {
       else if (elapsed >= 30) { mailType = '재독려 메일 [D+30]'; urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
       else if (elapsed >= 7) { mailType = '템플릿#4 첫사용 독려 [D+7]'; urgIcon = '🟢'; urgLabel = '정상'; }
       nextAction = '첫사용 독려 연락';
+    } else if (r.sa) {
+      status = '특별심사 승인'; nextAction = '승인 한도 기반 카드 발급 진행';
+      var lrd0a = limitResultDate(r);
+      elapsed = lrd0a ? daysSinceDate(lrd0a) : daysSince(r.d);
+      mailType = '카드 발급 안내';
+      if (elapsed >= 14) { urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; } else if (elapsed >= 7) { urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
+    } else if (r.sr) {
+      status = '특별심사'; nextAction = 'Risk팀 특별심사 결과 대기';
+      var lrd0b = limitResultDate(r);
+      elapsed = lrd0b ? daysSinceDate(lrd0b) : daysSince(r.d);
+      mailType = '특별심사 진행 확인';
+      if (elapsed >= 14) { urgIcon = '🔴'; urgLabel = '긴급'; urgClass = 'urgent'; } else if (elapsed >= 7) { urgIcon = '🟡'; urgLabel = '주의'; urgClass = 'warning'; }
     } else if (r.lz) {
-      if (r.sa) { status = '특별심사 승인'; nextAction = '승인 한도 기반 카드 발급 진행'; }
-      else if (r.sr) { status = '특별심사'; nextAction = 'Risk팀 특별심사 결과 대기'; }
-      else if (r.dc) { status = '보증금 확인'; nextAction = '보증금 기반 한도 재산출 대기'; }
+      if (r.dc) { status = '보증금 확인'; nextAction = '보증금 기반 한도 재산출 대기'; }
       else if (r.da) { status = '보증금 신청'; nextAction = '보증금 입금 확인 대기'; }
       else if (r.lrf) { status = '산출불가'; nextAction = '산출불가 사유 확인 → 보증금/특별심사 또는 재심사'; }
       else { status = '한도0원'; nextAction = '보증금 안내 또는 특별심사 요청'; }
@@ -2467,6 +2480,9 @@ function buildCardCoComm() {
   var today = new Date();
   function daysDiff(d) { if (!d) return 0; return Math.floor((today - new Date(d)) / 86400000); }
 
+  // 부결 확인된 법인 BRN 제외 (카드사 부결이나 RECORD_DATA에 미반영)
+  var COMM_EXCLUDED_BRNS = new Set(['2968703351','5448102720','1958100480','8418803221']);
+
   var items = [];
   allRecords.forEach(function(r) {
     if (!r.d) return;
@@ -2474,6 +2490,7 @@ function buildCardCoComm() {
     // Only include records where card application was submitted (ca=1) but card not yet issued (cd=0)
     if (!r.ca || r.cd) return; // skip if not applied or already issued
     if (r.lz) return; // 한도 0원은 카드사 협의 전 — 제외
+    if (COMM_EXCLUDED_BRNS.has(r.b)) return; // 부결 법인 제외
 
     var elapsed = daysDiff(r.d);
     var corp = r.c || '';
