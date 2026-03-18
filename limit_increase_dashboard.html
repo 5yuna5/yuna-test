@@ -841,8 +841,8 @@ function aggregateFunnel(recs) {
     o.canceled += r.cn; o.in_progress += r.ip;
     if (!r.rj) { o._alSum += r.al; o._alCnt++; }
     o._clSum += r.cl; o._rlSum += r.rl;
-    if (r.t === '상향') { o.limit_up_total++; o.limit_up_f4 += r.f4; o.limit_up_rejected += r.rj; }
-    else { o.card_add_total++; o.card_add_f4 += r.f4; o.card_add_rejected += r.rj; }
+    if (r.t === '상향') { o.limit_up_total++; o.limit_up_f4 += r.f4; o.limit_up_rejected += (r.rj + r.cr); }
+    else { o.card_add_total++; o.card_add_f4 += r.f4; o.card_add_rejected += (r.rj + r.cr); }
   });
   return Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month)).map(o => {
     o.avg_approved_limit = o._alCnt > 0 ? Math.round(o._alSum / o._alCnt) : 0;
@@ -1745,8 +1745,8 @@ function buildMonthlyTrendIndependent() {
     o.f2 += r.f2; o.f3 += r.f3; o.f4 += r.f4;
     o.gowid_rejected += r.rj; o.card_co_rejected += r.cr;
     o.canceled += r.cn; o.in_progress += r.ip;
-    if (r.t === '상향') { o.limit_up_total++; o.limit_up_f4 += r.f4; o.limit_up_rejected += r.rj; }
-    else { o.card_add_total++; o.card_add_f4 += r.f4; o.card_add_rejected += r.rj; }
+    if (r.t === '상향') { o.limit_up_total++; o.limit_up_f4 += r.f4; o.limit_up_rejected += (r.rj + r.cr); }
+    else { o.card_add_total++; o.card_add_f4 += r.f4; o.card_add_rejected += (r.rj + r.cr); }
   });
 
   const data = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month));
@@ -1951,33 +1951,33 @@ function aggregateCardCo(am) {
 }
 
 function buildCardCoTable() {
-  const am = getSelectedAM();
-  const startVal = document.getElementById('filterStart').value;
-  const endVal = document.getElementById('filterEnd').value;
-  const startMonth = startVal ? startVal.slice(0, 7) : null;
-  const endMonth = endVal ? endVal.slice(0, 7) : null;
-  const rawSource = am ? aggregateCardCo(am) : CARD_CO_DATA;
-  const source = rawSource.filter(r => {
-    if (!r.month) return true;
-    if (startMonth && r.month < startMonth) return false;
-    if (endMonth && r.month > endMonth) return false;
+  // M-6 fix: 항상 RECORD_DATA 기반 집계 (date+AM 필터 일관성 확보)
+  var start = document.getElementById('filterStart').value;
+  var end = document.getElementById('filterEnd').value;
+  var am = getSelectedAM();
+  var recs = RECORD_DATA.filter(function(r) {
+    if (start && r.d < start) return false;
+    if (end && r.d > end) return false;
+    if (am && !(r.am && r.am.split(',').some(function(a){ return a.trim() === am; }))) return false;
     return true;
   });
-  // aggregate by card_company
   const map = {};
-  source.forEach(r => {
-    if (!map[r.name]) map[r.name] = { name: r.name, total: 0, approved: 0, rejected: 0, gowid_rejected: 0, avg_card: 0, avg_total: 0, cnt: 0 };
-    const o = map[r.name];
-    o.total += r.total;
-    o.approved += r.approved;
-    o.rejected += r.rejected;
-    o.gowid_rejected += r.gowid_rejected;
-    o.avg_card += r.avg_card_review * r.total;
-    o.avg_total += r.avg_total * r.total;
-    o.cnt += r.total;
+  recs.forEach(function(r) {
+    var key = r.cc;
+    if (!key) return;
+    if (!map[key]) map[key] = { name: key, total: 0, approved: 0, rejected: 0, gowid_rejected: 0, _cdS: 0, _cdN: 0, _tdS: 0, _tdN: 0 };
+    var o = map[key];
+    o.total++; o.approved += r.f4; o.rejected += r.cr; o.gowid_rejected += r.rj;
+    if (r.cd != null) { o._cdS += r.cd; o._cdN++; }
+    if (r.td != null) { o._tdS += r.td; o._tdN++; }
   });
 
-  const rows = Object.values(map).sort((a,b) => b.total - a.total);
+  const rows = Object.values(map).map(function(o) {
+    return { name: o.name, total: o.total, approved: o.approved, rejected: o.rejected,
+      gowid_rejected: o.gowid_rejected, cnt: o.total,
+      avg_card: o._cdN ? Math.round(o._cdS / o._cdN * 10) / 10 : 0,
+      avg_total: o._tdN ? Math.round(o._tdS / o._tdN * 10) / 10 : 0 };
+  }).sort((a,b) => b.total - a.total);
 
   let html = `<thead><tr>
     <th>카드사</th><th class="num">총 신청</th><th class="num">카드사 승인</th>
@@ -2189,14 +2189,17 @@ function scrollToDetailFiltered(type) {
       else if (type === 'gowid_rejected') { row.style.display = row.dataset.reject === '1' ? '' : 'none'; }
       else if (type === 'card_rejected') { row.style.display = row.dataset.cardReject === '1' ? '' : 'none'; }
     });
-    // 검색 상태 재적용 (M-1/M-2: 검색 필터가 KPI 클릭으로 초기화되지 않도록)
+    // 검색 상태 재적용
     var searchInput = document.getElementById('detailSearchInput');
     if (searchInput && searchInput.value) {
       filterDetailBySearch(searchInput.value);
     }
-    // NOTE(known-issue M-2): hideCompleted 상태는 여기서 재적용하지 않음.
-    // KPI 카드 클릭 시 승인/부결 건도 보여야 하므로 hideCompleted와 충돌 가능성 있음.
-    // 완전한 수정은 scrollToDetailFiltered를 buildDetailTable 기반으로 재구현 필요.
+    // M-2 fix: hideCompleted 재적용 (단, 'approved' 필터는 완료 건을 보여야 하므로 예외)
+    if (hideCompleted && type !== 'approved') {
+      rows.forEach(function(row) {
+        if (row.dataset.done === '1') row.style.display = 'none';
+      });
+    }
   }, 300);
 }
 
