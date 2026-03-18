@@ -582,6 +582,18 @@
       </div>
       <div class="collapse-body open" id="commBody" style="margin-top:16px">
         <div id="commTabs" style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap"></div>
+        <div id="commDocControls" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <div style="display:flex;gap:4px;align-items:center">
+            <span style="font-size:11px;color:var(--text-muted);white-space:nowrap">서류보완·적체:</span>
+            <button class="tab-btn" id="commDocAll" style="font-size:10px;padding:2px 8px;background:var(--primary);color:#fff" onclick="setCommDocFilter('all')">전체</button>
+            <button class="tab-btn" id="commDocHas" style="font-size:10px;padding:2px 8px" onclick="setCommDocFilter('has')">있음</button>
+            <button class="tab-btn" id="commDocNone" style="font-size:10px;padding:2px 8px" onclick="setCommDocFilter('none')">없음</button>
+          </div>
+          <div style="position:relative;flex:1;min-width:160px;max-width:280px">
+            <input type="text" id="commDocSearchInput" placeholder="키워드 검색" oninput="onCommDocSearch()" style="width:100%;padding:4px 28px 4px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--bg-alt);color:var(--text);outline:none">
+            <span id="commDocSearchClear" onclick="clearCommDocSearch()" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;color:var(--text-muted);display:none">&times;</span>
+          </div>
+        </div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
           <table class="data-table" id="commTable" style="width:100%"></table>
         </div>
@@ -2473,6 +2485,9 @@ var COMM_MAIL_TEMPLATES = {
 // ─── CARD CO COMM SECTION ───
 var commActiveTab = '전체';
 var hideClosureReview = true; // 기본: 종결 검토(D+180) 숨김
+var commDocFilter = 'all'; // 'all' | 'has' | 'none'
+var commDocSearch = '';
+var commDocSortDir = 'none'; // 'none' | 'desc' | 'asc' (desc=있음 먼저)
 
 function buildCardCoComm() {
   // 카드사 커뮤니케이션은 날짜 필터와 무관하게 전체 발급대기 건을 표시
@@ -2549,6 +2564,8 @@ function buildCardCoComm() {
 }
 
 function renderCommTable(items) {
+  commLastItems = items; // 필터/검색/정렬 재렌더링용 저장
+
   var tabs = ['신한카드', '비씨카드', '롯데카드', '미선택', '전체'];
   var counts = {};
   tabs.forEach(function(t) {
@@ -2572,18 +2589,41 @@ function renderCommTable(items) {
   else if (commActiveTab === '미선택') filtered = items.filter(function(i) { return !i.cc; });
   else filtered = items.filter(function(i) { return i.cc === commActiveTab; });
 
+  // 서류보완·적체사유 필터
+  if (commDocFilter === 'has') filtered = filtered.filter(function(i) { return !!i.doc; });
+  else if (commDocFilter === 'none') filtered = filtered.filter(function(i) { return !i.doc; });
+
+  // 서류보완·적체사유 키워드 검색
+  if (commDocSearch) {
+    filtered = filtered.filter(function(i) { return i.doc && i.doc.toLowerCase().indexOf(commDocSearch) >= 0; });
+  }
+
+  // 서류보완·적체사유 정렬 (값 유무 기준)
+  if (commDocSortDir !== 'none') {
+    filtered = filtered.slice().sort(function(a, b) {
+      var aHas = a.doc ? 1 : 0, bHas = b.doc ? 1 : 0;
+      if (aHas !== bHas) return commDocSortDir === 'desc' ? bHas - aHas : aHas - bHas;
+      return b.urgency !== a.urgency ? b.urgency - a.urgency : b.elapsed - a.elapsed;
+    });
+  }
+
   var tbl = document.getElementById('commTable');
   if (!tbl) return;
 
+  // 필터 결과 카운트 표시
+  var countInfo = filtered.length + '건';
+  if (commDocFilter !== 'all' || commDocSearch) countInfo += ' (필터 적용)';
+
   if (filtered.length === 0) {
-    tbl.innerHTML = '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text-muted)">해당 항목 없음</td></tr>';
+    tbl.innerHTML = '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text-muted)">' + (commDocFilter !== 'all' || commDocSearch ? '필터 조건에 맞는 항목 없음' : '해당 항목 없음') + '</td></tr>';
     return;
   }
 
   var ccColors = { '신한카드': { bg: '#0046ff22', fg: '#0046ff' }, '비씨카드': { bg: '#e6001922', fg: '#e60019' }, '롯데카드': { bg: '#ed180822', fg: '#ed1808' } };
 
+  var sortArrow = commDocSortDir === 'desc' ? ' ▼' : commDocSortDir === 'asc' ? ' ▲' : ' ⇕';
   var html = '<thead><tr>';
-  html += '<th>우선순위</th><th>법인명</th><th>카드사</th><th>현재단계</th><th>경과일</th><th>서류보완·적체사유</th><th>필요 커뮤니케이션</th><th>담당AM</th><th>액션</th>';
+  html += '<th>우선순위</th><th>법인명</th><th>카드사</th><th>현재단계</th><th>경과일</th><th onclick="toggleCommDocSort()" style="cursor:pointer;user-select:none" title="클릭: 값 유무 정렬">서류보완·적체사유' + sortArrow + '</th><th>필요 커뮤니케이션</th><th>담당AM</th><th>액션</th>';
   html += '</tr></thead><tbody>';
 
   filtered.forEach(function(item) {
@@ -2630,6 +2670,43 @@ function commSwitchTab(tab, btn) {
   // Re-render with current filtered records
   buildCardCoComm();
 }
+
+function setCommDocFilter(mode) {
+  commDocFilter = mode;
+  ['All','Has','None'].forEach(function(s) {
+    var el = document.getElementById('commDoc' + s);
+    if (el) { el.style.background = ''; el.style.color = ''; }
+  });
+  var activeEl = document.getElementById('commDoc' + mode.charAt(0).toUpperCase() + mode.slice(1));
+  if (activeEl) { activeEl.style.background = 'var(--primary)'; activeEl.style.color = '#fff'; }
+  renderCommTable(commLastItems);
+}
+
+function onCommDocSearch() {
+  var input = document.getElementById('commDocSearchInput');
+  var clear = document.getElementById('commDocSearchClear');
+  commDocSearch = (input ? input.value : '').toLowerCase().trim();
+  if (clear) clear.style.display = commDocSearch ? 'block' : 'none';
+  renderCommTable(commLastItems);
+}
+
+function clearCommDocSearch() {
+  var input = document.getElementById('commDocSearchInput');
+  if (input) input.value = '';
+  commDocSearch = '';
+  var clear = document.getElementById('commDocSearchClear');
+  if (clear) clear.style.display = 'none';
+  renderCommTable(commLastItems);
+}
+
+function toggleCommDocSort() {
+  if (commDocSortDir === 'none') commDocSortDir = 'desc';
+  else if (commDocSortDir === 'desc') commDocSortDir = 'asc';
+  else commDocSortDir = 'none';
+  renderCommTable(commLastItems);
+}
+
+var commLastItems = [];
 
 function openCommMailDraft(corpName, commType, elapsed, date, am, cardCo) {
   var tmpl = COMM_MAIL_TEMPLATES[commType];
