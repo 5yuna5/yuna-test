@@ -20,7 +20,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: pm/context/card/operations/card-pending-alert
+        working-directory: ops/card-pending-alert
         run: npm install
 
       - name: Write BigQuery credentials
@@ -31,7 +31,7 @@ jobs:
           BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
 
       - name: Send alert
-        working-directory: pm/context/card/operations/card-pending-alert
+        working-directory: ops/card-pending-alert
         run: node index.js
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
