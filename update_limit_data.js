@@ -230,10 +230,52 @@ async function fetchSLAData() {
   }));
 }
 
+// ─── 공통 CTE: 특별심사 + 실부여한도 ───
+const SHARED_CTES = `
+    mla_ranked AS (
+      SELECT mla.limitApplicationId, mla.resultReviewStatus AS special_result,
+        ROW_NUMBER() OVER (PARTITION BY mla.limitApplicationId
+          ORDER BY CAST(mla.datastream_metadata.source_timestamp AS INT64) DESC) AS rn
+      FROM \`ods_stream_gowid.ManualLimitApplication\` mla
+      WHERE mla.type = 'SPECIAL' AND (mla.isDeleted = 0 OR mla.isDeleted IS NULL)
+    ),
+    mla_special AS (SELECT * FROM mla_ranked WHERE rn = 1),
+    max_granted_date AS (
+      SELECT MAX(date_id) AS d FROM \`gowid-prd.dw_fact.card_granted_limit\`
+    ),
+    cur_limit AS (
+      SELECT gl.corp_id, SUM(gl.granted_limit) AS cur_granted_limit
+      FROM \`gowid-prd.dw_fact.card_granted_limit\` gl
+      CROSS JOIN max_granted_date mgd
+      WHERE gl.date_id = mgd.d
+      GROUP BY gl.corp_id
+    )`;
+
+// 5단계 카테고리: UR=내부심사, ES=전자서명필요, SB=전문발송대기, CP=카드사심사, PS=제출대기
+const CATEGORY_CASE = `
+      CASE
+        WHEN a.card_co_approved_at IS NOT NULL OR a.gowid_rejected_at IS NOT NULL
+          OR a.card_co_rejected_at IS NOT NULL OR a.canceled_at IS NOT NULL THEN NULL
+        WHEN a.gowid_approved_at IS NULL THEN 'UR'
+        WHEN a.gowid_status LIKE '%특별심사%'
+          AND (ms.special_result IS NULL OR ms.special_result NOT IN ('APPROVED', 'PARTIAL_APPROVED'))
+          AND a.card_co_pending_at IS NULL THEN 'UR'
+        WHEN ms.special_result IN ('APPROVED', 'PARTIAL_APPROVED')
+          AND a.card_co_pending_at IS NULL THEN 'ES'
+        WHEN a.application_submitted_at IS NOT NULL AND a.card_co_pending_at IS NULL THEN 'SB'
+        WHEN a.card_co_pending_at IS NOT NULL THEN 'CP'
+        ELSE 'PS'
+      END`;
+
+const SHARED_JOINS = `
+    LEFT JOIN mla_special ms ON SAFE_CAST(SPLIT(a.id, '-')[OFFSET(0)] AS INT64) = ms.limitApplicationId
+    LEFT JOIN cur_limit cur ON CAST(a.corp_id AS STRING) = CAST(cur.corp_id AS STRING)`;
+
 // ─── 3. DETAIL_DATA: 건별 상세 (전체 기간) ───
 async function fetchDetailData() {
-  console.log('  [3/4] DETAIL_DATA 조회 중...');
+  console.log('  [3/5] DETAIL_DATA 조회 중...');
   const rows = await query(`
+    WITH ${SHARED_CTES}
     SELECT
       a.id,
       a.corp_name,
@@ -255,9 +297,13 @@ async function fetchDetailData() {
       CASE WHEN a.card_co_approved_at IS NOT NULL OR a.gowid_rejected_at IS NOT NULL OR a.card_co_rejected_at IS NOT NULL
         THEN ROUND(GREATEST(DATETIME_DIFF(COALESCE(a.card_co_approved_at, a.gowid_rejected_at, a.card_co_rejected_at), a.initialized_at, HOUR), 0) / 24.0, 1) END AS total_days,
       FORMAT_DATETIME('%Y-%m', a.initialized_at) AS month,
-      IFNULL(c.assigned_am, '') AS assigned_am
+      IFNULL(c.assigned_am, '') AS assigned_am,
+      ${CATEGORY_CASE} AS cat,
+      IFNULL(ms.special_result, '') AS special_review,
+      ROUND(COALESCE(cur.cur_granted_limit, 0) / 10000, 0) AS granted_limit
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    ${SHARED_JOINS}
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-01-01'
     ORDER BY a.initialized_at DESC
@@ -283,6 +329,9 @@ async function fetchDetailData() {
     card_reject: r.card_rejected_date,
     total: Number(r.total_days || 0),
     am: r.assigned_am || '',
+    cat: r.cat || null,
+    spr: r.special_review || '',
+    gl: Number(r.granted_limit || 0),
     crm: '',
   }));
 }
@@ -325,6 +374,7 @@ async function fetchCardCoData() {
 async function fetchRecordData() {
   console.log('  [5/5] RECORD_DATA 조회 중...');
   const rows = await query(`
+    WITH ${SHARED_CTES}
     SELECT
       FORMAT_DATETIME('%Y-%m-%d', a.initialized_at) AS date,
       a.corp_name,
@@ -362,9 +412,13 @@ async function fetchRecordData() {
       CASE WHEN a.is_limit_check_duration_over THEN 1 ELSE 0 END AS lo,
       CASE WHEN a.is_net_gowid_review_duration_over THEN 1 ELSE 0 END AS go,
       CASE WHEN a.is_application_submit_duration_over THEN 1 ELSE 0 END AS so,
-      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co
+      CASE WHEN a.is_card_co_review_duration_over THEN 1 ELSE 0 END AS co,
+      ${CATEGORY_CASE} AS cat,
+      IFNULL(ms.special_result, '') AS spr,
+      ROUND(COALESCE(cur.cur_granted_limit, 0) / 10000, 0) AS granted_limit
     FROM \`gowid-prd.mart_limit_application.application_status\` a
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` c ON a.corp_id = c.corp_id
+    ${SHARED_JOINS}
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-01-01'
     ORDER BY a.initialized_at DESC
@@ -387,6 +441,9 @@ async function fetchRecordData() {
     sd: r.sd != null ? Number(r.sd) : null,
     done: Number(r.done),
     lo: Number(r.lo), go: Number(r.go), so: Number(r.so), co: Number(r.co),
+    cat: r.cat || null,
+    spr: r.spr || '',
+    gl: Number(r.granted_limit || 0),
     crm: '',
   }));
 }
