@@ -607,11 +607,29 @@ async function deployToGhPages() {
   }
 }
 
-main().catch(err => {
-  console.error('\n❌ 오류 발생:', err.message);
-  if (err.message.includes('Cannot find module')) {
-    console.error('\n@google-cloud/bigquery 패키지를 설치하세요:');
-    console.error('  cd ' + __dirname + ' && bun add @google-cloud/bigquery');
+// 네트워크 오류 시 재시도 (Mac 잠자기 후 네트워크 복구 대기)
+const MAX_RETRIES = 3;
+const RETRY_DELAY_SEC = 30;
+const RETRYABLE = /ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up/i;
+
+(async () => {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await main();
+      return;
+    } catch (err) {
+      if (attempt < MAX_RETRIES && RETRYABLE.test(err.message)) {
+        console.error(`\n⚠ 네트워크 오류 (${attempt}/${MAX_RETRIES}): ${err.message}`);
+        console.error(`  ${RETRY_DELAY_SEC}초 후 재시도...`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_SEC * 1000));
+        continue;
+      }
+      console.error('\n❌ 오류 발생:', err.message);
+      if (err.message.includes('Cannot find module')) {
+        console.error('\n@google-cloud/bigquery 패키지를 설치하세요:');
+        console.error('  cd ' + __dirname + ' && bun add @google-cloud/bigquery');
+      }
+      process.exit(1);
+    }
   }
-  process.exit(1);
-});
+})();
