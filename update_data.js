@@ -629,11 +629,85 @@ async function fetchCohortIndustryByIssued() {
   }));
 }
 
+// ─── 카드사별 현황 ───
+async function fetchCardCompanyData() {
+  const [usageRows, limitRows, issuanceRows] = await Promise.all([
+    query(`
+      SELECT
+        cc.card_company_name,
+        SUM(IF(m.month_id BETWEEN '2025-01-01' AND '2025-12-01', m.total_amount, 0)) AS usage_2025,
+        SUM(IF(m.month_id >= '2026-01-01', m.total_amount, 0)) AS usage_2026_ytd
+      FROM \`gowid-prd.dw_metric.card_purchase_amount__month__corporation_card_company\` m
+      JOIN \`gowid-prd.dw_dimension.card_company\` cc ON m.card_company_id = cc.card_company_id
+      WHERE cc.card_company_name IN ('롯데카드', '신한카드', '비씨카드')
+        AND m.month_id >= '2025-01-01'
+      GROUP BY 1
+    `),
+    query(`
+      WITH latest AS (
+        SELECT card_company_id, MAX(date_id) AS max_date
+        FROM \`gowid-prd.dw_metric.limit__date__corporation_card_company\`
+        WHERE date_id >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+        GROUP BY 1
+      )
+      SELECT cc.card_company_name, SUM(l.total_granted_limit) AS total_granted_limit
+      FROM \`gowid-prd.dw_metric.limit__date__corporation_card_company\` l
+      JOIN latest lt ON l.card_company_id = lt.card_company_id AND l.date_id = lt.max_date
+      JOIN \`gowid-prd.dw_dimension.card_company\` cc ON l.card_company_id = cc.card_company_id
+      WHERE cc.card_company_name IN ('롯데카드', '신한카드', '비씨카드')
+      GROUP BY 1
+    `),
+    query(`
+      SELECT card_company_name, application_type, COUNT(*) AS cnt
+      FROM \`gowid-prd.mart_limit_application.application_status\`
+      WHERE card_co_approved_at IS NOT NULL
+        AND card_company_name IN ('롯데카드', '신한카드', '비씨카드')
+        AND initialized_at >= '2025-01-01'
+        AND latest_status <> '신청시작'
+      GROUP BY 1, 2
+    `)
+  ]);
+
+  const map = { '롯데카드': 'lotte', '신한카드': 'shinhan', '비씨카드': 'bc' };
+  const result = {
+    lotte: { usage_2025: 0, usage_2026_ytd: 0, new_enrollment: 0, limit_increase: 0, additional: 0, granted_limit: 0 },
+    shinhan: { usage_2025: 0, usage_2026_ytd: 0, new_enrollment: 0, limit_increase: 0, additional: 0, granted_limit: 0 },
+    bc: { usage_2025: 0, usage_2026_ytd: 0, new_enrollment: 0, limit_increase: 0, additional: 0, granted_limit: 0 },
+  };
+
+  for (const r of usageRows) {
+    const k = map[r.card_company_name];
+    if (k) { result[k].usage_2025 = Number(r.usage_2025); result[k].usage_2026_ytd = Number(r.usage_2026_ytd); }
+  }
+  for (const r of limitRows) {
+    const k = map[r.card_company_name];
+    if (k) { result[k].granted_limit = Number(r.total_granted_limit); }
+  }
+  for (const r of issuanceRows) {
+    const k = map[r.card_company_name];
+    if (!k) continue;
+    if (r.application_type === '신규') result[k].new_enrollment = Number(r.cnt);
+    else if (r.application_type === '한도상향') result[k].limit_increase = Number(r.cnt);
+    else if (r.application_type === '카드사 추가') result[k].additional = Number(r.cnt);
+  }
+  return result;
+}
+
 // ─── HTML UPDATER ───
 
 function replaceConst(html, name, data) {
   // Match: const NAME = [...]; or const NAME = [...\n];
   const re = new RegExp(`const ${name} = \\[[\\s\\S]*?\\];`);
+  const replacement = `const ${name} = ${JSON.stringify(data)};`;
+  if (!re.test(html)) {
+    console.error(`  ⚠ ${name} 패턴을 찾을 수 없습니다.`);
+    return html;
+  }
+  return html.replace(re, replacement);
+}
+
+function replaceObjConst(html, name, data) {
+  const re = new RegExp(`const ${name} = \\{[\\s\\S]*?\\};`);
   const replacement = `const ${name} = ${JSON.stringify(data)};`;
   if (!re.test(html)) {
     console.error(`  ⚠ ${name} 패턴을 찾을 수 없습니다.`);
@@ -666,7 +740,7 @@ async function main() {
   console.log('🔄 대시보드 데이터 업데이트 시작\n');
 
   // ⚠ TIER_DATA, COMPARE_DATA는 수작업 보정 데이터이므로 업데이트하지 않음
-  const [funnel, usage, industry, corpDetail, funnelDetail, sla, cohortIndustry, cohortIndustryIssued] = await Promise.all([
+  const [funnel, usage, industry, corpDetail, funnelDetail, sla, cohortIndustry, cohortIndustryIssued, cardCompany] = await Promise.all([
     fetchFunnelData(),
     fetchUsageData(),
     fetchIndustryData(),
@@ -675,6 +749,7 @@ async function main() {
     fetchSLAData(),
     fetchCohortIndustry(),
     fetchCohortIndustryByIssued(),
+    fetchCardCompanyData(),
   ]);
 
   console.log(`\n📊 조회 완료:`);
@@ -686,6 +761,7 @@ async function main() {
   console.log(`  SLA_DATA: ${sla.length}개월`);
   console.log(`  COHORT_INDUSTRY: ${cohortIndustry.length}개 코호트×업종 (신청월 기준)`);
   console.log(`  COHORT_INDUSTRY_ISSUED: ${cohortIndustryIssued.length}개 코호트×업종 (발급월 기준)`);
+  console.log(`  CARD_COMPANY_DATA: 3개 카드사`);
   console.log(`  (TIER_DATA, COMPARE_DATA는 보정 데이터 — 건너뜀)`);
 
   console.log('\n📝 HTML 파일 업데이트 중...');
@@ -699,6 +775,7 @@ async function main() {
   html = replaceConst(html, 'SLA_DATA', sla);
   html = replaceConst(html, 'COHORT_INDUSTRY', cohortIndustry);
   html = replaceConst(html, 'COHORT_INDUSTRY_ISSUED', cohortIndustryIssued);
+  html = replaceObjConst(html, 'CARD_COMPANY_DATA', cardCompany);
   html = updateTimestamp(html);
 
   fs.writeFileSync(HTML_FILE, html);
