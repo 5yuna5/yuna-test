@@ -132,6 +132,7 @@ async function fetchFunnelData() {
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
       AND initialized_at >= '2025-01-01'
+      AND latest_status <> '신청시작'
     GROUP BY 1, 2
     ORDER BY 1, 2
   `);
@@ -203,6 +204,7 @@ async function fetchSLAData() {
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
       AND initialized_at >= '2025-01-01'
+      AND latest_status <> '신청시작'
       -- 완료 건만 (미완료 건 제외하여 SLA 왜곡 방지)
       AND (card_co_approved_at IS NOT NULL
         OR gowid_rejected_at IS NOT NULL
@@ -306,6 +308,7 @@ async function fetchDetailData() {
     ${SHARED_JOINS}
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-01-01'
+      AND a.latest_status <> '신청시작'
     ORDER BY a.initialized_at DESC
   `);
 
@@ -354,6 +357,7 @@ async function fetchCardCoData() {
     FROM \`gowid-prd.mart_limit_application.application_status\`
     WHERE application_type IN ('한도상향', '카드사 추가')
       AND initialized_at >= '2025-01-01'
+      AND latest_status <> '신청시작'
     GROUP BY 1, 2
     ORDER BY total DESC
   `);
@@ -421,6 +425,7 @@ async function fetchRecordData() {
     ${SHARED_JOINS}
     WHERE a.application_type IN ('한도상향', '카드사 추가')
       AND a.initialized_at >= '2025-01-01'
+      AND a.latest_status <> '신청시작'
     ORDER BY a.initialized_at DESC
   `);
 
