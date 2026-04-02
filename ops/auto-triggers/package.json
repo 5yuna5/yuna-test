@@ -1,0 +1,15 @@
+{
+  "name": "auto-triggers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "온라인AM 자동 병목 해소 트리거 (pending queue → 담당자 승인 후 발송)",
+  "scripts": {
+    "start": "node index.js",
+    "dry-run": "node index.js --dry-run"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.1.1",
+    "@supabase/supabase-js": "^2",
+    "dotenv": "^17"
+  }
+}
