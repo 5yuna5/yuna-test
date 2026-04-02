@@ -1,0 +1,50 @@
+name: Auto Triggers — 병목 해소 대기 큐 적재
+
+on:
+  schedule:
+    # 매일 09:00 KST = 00:00 UTC
+    - cron: '0 0 * * *'
+    # 매일 14:00 KST = 05:00 UTC
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'dry-run 모드 (true = 실제 적재 안 함)'
+        required: false
+        default: 'false'
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ops/auto-triggers
+        run: npm install
+
+      - name: Write BigQuery credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Run auto triggers
+        working-directory: ops/auto-triggers
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            node index.js --dry-run
+          else
+            node index.js
+          fi
+        env:
+          SUPABASE_OPS_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_OPS_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
