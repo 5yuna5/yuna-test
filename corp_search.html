@@ -195,10 +195,17 @@ function doSearch(query) {
     seen[r.c] = true;
 
     var stage = '', cls = '', detail = '';
+    var depositStatus = r.dc ? '보증금확인완료' : r.da ? '보증금신청' : '';
     if (r.fs) { stage = '첫사용 완료'; cls = 'completed'; }
     else if (r.cd) { stage = '카드발급 완료·미사용'; cls = 'completed'; detail = r.id ? '발급일 ' + r.id : ''; }
-    else if (r.sa) { stage = '특별심사 승인'; cls = 'completed'; }
-    else if (r.sr) { stage = '특별심사 진행중'; cls = 'pending'; }
+    else if (r.sa) {
+      stage = depositStatus ? '특별심사 승인 + ' + depositStatus : '특별심사 승인';
+      cls = 'completed';
+    }
+    else if (r.sr) {
+      stage = depositStatus ? '특별심사 + ' + depositStatus : '특별심사 진행중';
+      cls = 'pending';
+    }
     else if (r.lnz) { stage = '유효한도·미발급'; cls = 'progress'; }
     else if (r.lz) {
       if (r.dc) stage = '보증금 확인';
