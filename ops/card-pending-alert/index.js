@@ -321,6 +321,26 @@ async function main() {
     process.exit(1);
   }
 
+  // 멱등성 가드: 오늘 같은 쓰레드에 이미 발송했으면 종료
+  // (GitHub Actions cron 다중 등록 시 중복 발송 방지)
+  const today = new Date().toISOString().slice(0, 10);
+  const replies = await slack.conversations.replies({
+    channel: CHANNEL,
+    ts: parentMsg.ts,
+    limit: 100,
+  });
+
+  const alreadySent = (replies.messages || []).some(m => {
+    if (m.username !== '카드 발급 대기 알림') return false;
+    const msgDate = new Date(Number(m.ts) * 1000).toISOString().slice(0, 10);
+    return msgDate === today;
+  });
+
+  if (alreadySent) {
+    console.log(`오늘(${today}) 이미 발송됨 — 중복 발송 방지를 위해 종료합니다.`);
+    return;
+  }
+
   console.log(`봇 메시지 발견 (ts: ${parentMsg.ts}), 쓰레드로 전송 중...`);
   await slack.chat.postMessage({
     channel: CHANNEL,

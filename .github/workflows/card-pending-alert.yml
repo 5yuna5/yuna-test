@@ -2,8 +2,13 @@ name: Card Pending Alert
 
 on:
   schedule:
-    # 매일 한국시간 오전 9:05 (UTC 0:05)
-    - cron: '5 0 * * *'
+    # KST 시간대 분산 등록 — GitHub Actions cron 큐잉 지연 우회
+    # 어느 트리거든 가장 먼저 풀린 인스턴스가 발송, 나머지는 멱등성 가드로 skip
+    - cron: '50 23 * * *'  # KST 08:50
+    - cron: '5 0 * * *'    # KST 09:05
+    - cron: '20 0 * * *'   # KST 09:20
+    - cron: '35 0 * * *'   # KST 09:35
+    - cron: '50 0 * * *'   # KST 09:50
   workflow_dispatch: # 수동 실행도 가능
 
 jobs:
