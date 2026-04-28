@@ -7,7 +7,7 @@
  *   node sheets-sync.js --dry-run    # 콘솔 출력만
  */
 
-try { require('dotenv').config({ path: require('path').join(__dirname, '../crm-slack-bot/.env') }); } catch (e) { /* CI 환경에서는 .env 없음 */ }
+require('dotenv').config({ path: require('path').join(__dirname, '../crm-slack-bot/.env') });
 
 const { BigQuery } = require('@google-cloud/bigquery');
 const { google } = require('googleapis');
@@ -111,7 +111,9 @@ async function fetchPending() {
   return rows;
 }
 
-// 섹션1.5: 고위드 승인 · 카드사 미접수
+// 섹션1.5: 고위드 승인 · 카드사 미접수 (특별심사/고액심사/자동심사)
+const HIGH_AMOUNT_THRESHOLD = 1e8; // 1억
+
 async function fetchGowidPending() {
   return await query(`
     SELECT
@@ -123,7 +125,8 @@ async function fetchGowidPending() {
          DATE_ADD(CAST(s.gowid_approved_at AS DATE), INTERVAL 1 DAY), CURRENT_DATE()
        )) AS d) AS days_elapsed,
       cor.assigned_am AS am_name,
-      COALESCE(cor.is_fuel_eligible, false) OR COALESCE(cor.is_fuel_client, false) AS is_fuel
+      COALESCE(cor.is_fuel_eligible, false) OR COALESCE(cor.is_fuel_client, false) AS is_fuel,
+      COALESCE(s.gowid_status, '') AS gowid_status
     FROM \`gowid-prd.mart_limit_application.application_status\` s
     LEFT JOIN \`gowid-prd.dw_dimension.corporation\` cor ON s.corp_id = cor.corp_id
     WHERE s.application_type IN ('한도상향', '카드사 추가')
@@ -133,6 +136,20 @@ async function fetchGowidPending() {
       AND ${corpExcludeWhere('s')}
     ORDER BY days_elapsed DESC, s.corp_name
   `);
+}
+
+function splitGowidRows(rows) {
+  const special = [], highAmount = [], auto = [];
+  for (const r of rows) {
+    if ((r.gowid_status || '').includes('특별심사')) {
+      special.push(r);
+    } else if (Number(r.requested_limit_amount) >= HIGH_AMOUNT_THRESHOLD) {
+      highAmount.push(r);
+    } else {
+      auto.push(r);
+    }
+  }
+  return { special, highAmount, auto };
 }
 
 // 섹션2: 승인 완료 · 한도 미반영
@@ -512,11 +529,51 @@ async function applyFormatting(sheetId, rowCount, colCount) {
   });
 }
 
-async function writeDoneTab(removedItems, fromTab) {
+// 종결 사유 조회: 승인/부결/취소 상태
+async function fetchFinalStatuses() {
+  const rows = await query(`
+    SELECT
+      s.corp_name, s.card_company_name,
+      CASE
+        WHEN s.card_co_approved_at IS NOT NULL THEN '카드사 승인'
+        WHEN s.card_co_rejected_at IS NOT NULL THEN '카드사 부결'
+        WHEN s.gowid_rejected_at IS NOT NULL THEN '고위드 부결'
+        WHEN s.canceled_at IS NOT NULL THEN '취소'
+        ELSE ''
+      END AS final_status,
+      COALESCE(
+        CAST(s.card_co_approved_at AS DATE),
+        CAST(s.card_co_rejected_at AS DATE),
+        CAST(s.gowid_rejected_at AS DATE),
+        CAST(s.canceled_at AS DATE)
+      ) AS closed_date
+    FROM \`gowid-prd.mart_limit_application.application_status\` s
+    WHERE s.application_type IN ('한도상향', '카드사 추가')
+      AND (s.card_co_approved_at IS NOT NULL
+        OR s.card_co_rejected_at IS NOT NULL
+        OR s.gowid_rejected_at IS NOT NULL
+        OR s.canceled_at IS NOT NULL)
+  `);
+  const map = new Map();
+  for (const r of rows) {
+    const key = `${r.corp_name}|${r.card_company_name}`;
+    // 최신 건 우선 (같은 법인+카드사 여러 건 가능)
+    if (!map.has(key) || (r.closed_date && r.closed_date.value > (map.get(key).closed_date || ''))) {
+      map.set(key, {
+        status: r.final_status,
+        closed_date: r.closed_date ? r.closed_date.value || r.closed_date : '',
+      });
+    }
+  }
+  return map;
+}
+
+const DONE_HEADERS = ['법인명','카드사','유형','완료일','이전탭','종결사유','종결일','진척사항','메모'];
+
+async function writeDoneTab(removedItems, fromTab, statusMap) {
   if (removedItems.length === 0) return;
 
   const sheetId = await ensureTab('완료');
-  const HEADERS = ['법인명','카드사','유형','완료일','이전탭','진척사항','메모'];
 
   // 기존 데이터 확인
   let existingRows = 0;
@@ -534,16 +591,21 @@ async function writeDoneTab(removedItems, fromTab) {
       spreadsheetId: SPREADSHEET_ID,
       range: '완료!A1',
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [HEADERS] },
+      requestBody: { values: [DONE_HEADERS] },
     });
     existingRows = 1;
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const doneRows = removedItems.map(item => [
-    item.corpName, item.cardCompany, item.type,
-    today, fromTab, item.progress || '', item.memo || '',
-  ]);
+  const doneRows = removedItems.map(item => {
+    const key = `${item.corpName}|${item.cardCompany}`;
+    const st = statusMap.get(key) || {};
+    return [
+      item.corpName, item.cardCompany, item.type,
+      today, fromTab, st.status || '', st.closed_date || '',
+      item.progress || '', item.memo || '',
+    ];
+  });
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
@@ -551,6 +613,75 @@ async function writeDoneTab(removedItems, fromTab) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: doneRows },
   });
+}
+
+// 기존 완료 탭 종결사유 백필 (헤더 마이그레이션 + 빈 종결사유 채우기)
+async function backfillDoneTab(statusMap) {
+  const sheetId = await getSheetId('완료');
+  if (sheetId === null) return;
+
+  let rows;
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: '완료!A:I',
+    });
+    rows = res.data.values || [];
+  } catch (e) { return; }
+
+  if (rows.length <= 1) return;
+
+  const header = rows[0];
+  const needsMigration = header.length < 9 || header[5] !== '종결사유';
+
+  if (!needsMigration) {
+    // 이미 마이그레이션됨 — 빈 종결사유만 채우기
+    const updates = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r[5]) { // F열 종결사유가 비어있으면
+        const key = `${r[0] || ''}|${r[1] || ''}`;
+        const st = statusMap.get(key);
+        if (st) {
+          updates.push({ range: `완료!F${i + 1}:G${i + 1}`, values: [[st.status, st.closed_date]] });
+        }
+      }
+    }
+    if (updates.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { valueInputOption: 'USER_ENTERED', data: updates },
+      });
+      console.log(`  완료: ${updates.length}건 종결사유 백필`);
+    }
+    return;
+  }
+
+  // 헤더 마이그레이션: 기존 7열 → 9열 (종결사유, 종결일 삽입)
+  const newRows = [DONE_HEADERS];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const key = `${r[0] || ''}|${r[1] || ''}`;
+    const st = statusMap.get(key) || {};
+    newRows.push([
+      r[0] || '', r[1] || '', r[2] || '',  // 법인명, 카드사, 유형
+      r[3] || '', r[4] || '',               // 완료일, 이전탭
+      st.status || '', st.closed_date || '', // 종결사유, 종결일 (신규)
+      r[5] || '', r[6] || '',               // 진척사항, 메모 (기존 F,G → H,I)
+    ]);
+  }
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: '완료!A:Z',
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: '완료!A1',
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: newRows },
+  });
+  console.log(`  완료: 헤더 마이그레이션 + ${rows.length - 1}건 종결사유 백필`);
 }
 
 async function detectRemoved(sheetName, newRows) {
@@ -583,30 +714,38 @@ async function detectRemoved(sheetName, newRows) {
 async function main() {
   console.log('BigQuery 데이터 조회 중...');
 
-  const [pendingRaw, gowidRaw, unapplied, stagingMap] = await Promise.all([
+  const [pendingRaw, gowidRaw, unapplied, stagingMap, statusMap] = await Promise.all([
     fetchPending(),
     fetchGowidPending(),
     fetchUnapplied(),
     fetchStagingCorrections(),
+    fetchFinalStatuses(),
   ]);
 
   // Staging 보정
   const { pending, gowid, moved, resolved } = applyStagingCorrections(pendingRaw, gowidRaw, stagingMap);
 
-  console.log(`심사대기: ${pending.length}건, 미접수: ${gowid.length}건, 미반영: ${unapplied.length}건`);
+  // 미접수 분리
+  const { special: specialDry, highAmount: highDry, auto: autoDry } = splitGowidRows(gowid);
+
+  console.log(`심사대기: ${pending.length}건, 미접수: ${gowid.length}건 (특별${specialDry.length}/고액${highDry.length}/자동${autoDry.length}), 미반영: ${unapplied.length}건`);
   if (moved > 0) console.log(`[Staging 보정] 미접수→심사대기 ${moved}건`);
   if (resolved > 0) console.log(`[Staging 보정] 승인/부결 완료 ${resolved}건 제거`);
 
   if (DRY_RUN) {
     console.log('\n[DRY RUN] 시트 미리보기:\n');
-    console.log(`=== 심사대기 (${pending.length}건) ===`);
-    pending.slice(0, 5).forEach(r => console.log(`  ${r.corp_name} [${r.card_company_name}] ${fmtAmt(r.current_limit_amount)}→${fmtAmt(r.requested_limit_amount)} ${r.days_elapsed}일`));
-    if (pending.length > 5) console.log(`  ... +${pending.length - 5}건`);
-    console.log(`\n=== 미접수 (${gowid.length}건) ===`);
-    gowid.slice(0, 5).forEach(r => console.log(`  ${r.corp_name} [${r.card_company_name}] ${r.days_elapsed}일`));
-    if (gowid.length > 5) console.log(`  ... +${gowid.length - 5}건`);
-    console.log(`\n=== 미반영 (${unapplied.length}건) ===`);
-    unapplied.forEach(r => console.log(`  ${r.corp_name} [${r.card_company_name}] ${r.days_elapsed}일`));
+    const fmtRow = r => `  ${r.corp_name} [${r.card_company_name}] ${fmtAmt(r.current_limit_amount)}→${fmtAmt(r.requested_limit_amount)} ${r.days_elapsed}일`;
+    const preview = (name, rows) => {
+      console.log(`=== ${name} (${rows.length}건) ===`);
+      rows.slice(0, 5).forEach(r => console.log(fmtRow(r)));
+      if (rows.length > 5) console.log(`  ... +${rows.length - 5}건`);
+      console.log();
+    };
+    preview('심사대기', pending);
+    preview('특별심사', specialDry);
+    preview('고액심사', highDry);
+    preview('자동심사', autoDry);
+    preview('미반영', unapplied);
     return;
   }
 
@@ -614,22 +753,57 @@ async function main() {
 
   console.log('시트 동기화 중...');
 
+  // 미접수 → 특별심사/고액심사/자동심사 분리
+  const { special, highAmount, auto } = splitGowidRows(gowid);
+  console.log(`  미접수 분리: 특별심사 ${special.length}건, 고액심사 ${highAmount.length}건, 자동심사 ${auto.length}건`);
+
+  // 기존 "미접수" 탭 수기 데이터 마이그레이션 (최초 1회)
+  const oldManual = await readExistingManual('미접수');
+
   // 각 탭 처리
-  for (const [tabName, rows] of [['심사대기', pending], ['미접수', gowid], ['미반영', unapplied]]) {
+  const tabs = [
+    ['심사대기', pending],
+    ['특별심사', special],
+    ['고액심사', highAmount],
+    ['자동심사', auto],
+    ['미반영', unapplied],
+  ];
+  for (const [tabName, rows] of tabs) {
     const sheetId = await ensureTab(tabName);
 
-    // 기존 수기 입력 보존
+    // 기존 수기 입력 보존 (해당 탭 + 구 미접수 탭에서 마이그레이션)
     const manualMap = await readExistingManual(tabName);
+    // 구 미접수 탭 데이터도 병합 (새 탭에 없는 키만)
+    if (['특별심사', '고액심사', '자동심사'].includes(tabName)) {
+      for (const [key, val] of oldManual) {
+        if (!manualMap.has(key)) manualMap.set(key, val);
+      }
+    }
 
     // 사라진 건 → 완료 탭으로
     const removed = await detectRemoved(tabName, rows);
-    await writeDoneTab(removed, tabName);
+    await writeDoneTab(removed, tabName, statusMap);
     if (removed.length > 0) console.log(`  ${tabName}: ${removed.length}건 → 완료 탭 이동`);
 
     // 데이터 쓰기
     await writeTab(tabName, sheetId, rows, manualMap, today);
     console.log(`  ${tabName}: ${rows.length}건 갱신 완료`);
   }
+
+  // 완료 탭 종결사유 백필
+  await backfillDoneTab(statusMap);
+
+  // 구 "미접수" 탭 삭제
+  try {
+    const oldSheetId = await getSheetId('미접수');
+    if (oldSheetId !== null) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { requests: [{ deleteSheet: { sheetId: oldSheetId } }] },
+      });
+      console.log('  구 "미접수" 탭 삭제 완료');
+    }
+  } catch (e) { /* 이미 삭제됨 */ }
 
   // 기본 시트 정리
   try {
