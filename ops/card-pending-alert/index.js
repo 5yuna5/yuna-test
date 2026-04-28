@@ -187,6 +187,17 @@ function formatDate(isoStr) {
   return isoStr.slice(0, 10);
 }
 
+// Unix epoch(초) → KST 날짜 문자열 (YYYY-MM-DD)
+function tsToKstDate(ts) {
+  const ms = Number(ts) * 1000;
+  // 'sv-SE' 로케일은 YYYY-MM-DD 포맷을 반환함. Asia/Seoul 타임존으로 KST 변환
+  return new Date(ms).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+}
+
+function todayKstDate() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+}
+
 function fmtMonth(d) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
 }
@@ -321,24 +332,29 @@ async function main() {
     process.exit(1);
   }
 
-  // 멱등성 가드: 오늘 같은 쓰레드에 이미 발송했으면 종료
-  // (GitHub Actions cron 다중 등록 시 중복 발송 방지)
-  const today = new Date().toISOString().slice(0, 10);
-  const replies = await slack.conversations.replies({
-    channel: CHANNEL,
-    ts: parentMsg.ts,
-    limit: 100,
-  });
-
-  const alreadySent = (replies.messages || []).some(m => {
-    if (m.username !== '카드 발급 대기 알림') return false;
-    const msgDate = new Date(Number(m.ts) * 1000).toISOString().slice(0, 10);
-    return msgDate === today;
-  });
-
-  if (alreadySent) {
-    console.log(`오늘(${today}) 이미 발송됨 — 중복 발송 방지를 위해 종료합니다.`);
-    return;
+  // 중복 전송 방지: 이미 오늘자 "카드 발급 대기 알림" 리플라이가 쓰레드에 있으면 skip
+  // (GHA 이중 스케줄 00:05/00:35 UTC 중 두 번째 실행이 돌 때를 위한 방어)
+  const BOT_USERNAME = '카드 발급 대기 알림';
+  const todayKst = todayKstDate();
+  try {
+    const replies = await slack.conversations.replies({
+      channel: CHANNEL,
+      ts: parentMsg.ts,
+    });
+    const dup = (replies.messages || []).find(m => {
+      const nameMatch =
+        m.username === BOT_USERNAME ||
+        (m.bot_profile && m.bot_profile.name === BOT_USERNAME);
+      if (!nameMatch) return false;
+      return tsToKstDate(m.ts) === todayKst;
+    });
+    if (dup) {
+      console.log(`이미 오늘자 알림이 쓰레드에 있어 skip합니다. (ts=${dup.ts}, kst=${todayKst})`);
+      process.exit(0);
+    }
+  } catch (err) {
+    // 리플라이 조회 실패 시 중복방지 포기하고 기존 로직 진행 (silent fail보다 발송 누락이 더 위험)
+    console.error(`중복 체크 실패 (계속 진행): ${err.message}`);
   }
 
   console.log(`봇 메시지 발견 (ts: ${parentMsg.ts}), 쓰레드로 전송 중...`);
