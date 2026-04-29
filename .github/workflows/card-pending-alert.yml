@@ -2,33 +2,67 @@ name: Card Pending Alert
 
 on:
   schedule:
-    # KST 시간대 분산 등록 — GitHub Actions cron 큐잉 지연 우회
-    # 어느 트리거든 가장 먼저 풀린 인스턴스가 발송, 나머지는 멱등성 가드로 skip
+    # 안전망: 5개 분산 (workflow_run 트리거가 늦거나 실패 시 폴백)
+    # GitHub Actions는 저빈도 daily cron을 ~3h 지연시킴 — 매시간 fire되는
+    # Update Dashboard Data 워크플로우 완료 후 piggyback 트리거가 1차.
     - cron: '50 23 * * *'  # KST 08:50
     - cron: '5 0 * * *'    # KST 09:05
     - cron: '20 0 * * *'   # KST 09:20
     - cron: '35 0 * * *'   # KST 09:35
     - cron: '50 0 * * *'   # KST 09:50
+  workflow_run:
+    # Update Dashboard Data가 매시간 정시 fire되는 점을 활용한 piggyback 트리거.
+    # 기본 브랜치(main)에서만 fire됨 (GitHub 기본 동작).
+    workflows: ["Update Dashboard Data"]
+    types: [completed]
   workflow_dispatch: # 수동 실행도 가능
 
 jobs:
   alert:
     runs-on: ubuntu-latest
+    # workflow_run 트리거 시 success일 때만, schedule/dispatch는 항상 통과
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
 
     steps:
+      - name: Time window guard (workflow_run only)
+        id: window
+        run: |
+          # workflow_run는 update-data가 매시간 fire되며 매번 트리거됨.
+          # KST 08~10시 (UTC 23~01) 윈도우 밖이면 종료. 멱등성 가드는 index.js가 처리.
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            HOUR=$(date -u +%H)
+            case "$HOUR" in
+              23|00|01)
+                echo "proceed=true" >> $GITHUB_OUTPUT
+                echo "✓ workflow_run within KST 08-10 window (UTC=$HOUR)"
+                ;;
+              *)
+                echo "proceed=false" >> $GITHUB_OUTPUT
+                echo "✗ workflow_run outside KST 08-10 window (UTC=$HOUR), skipping"
+                ;;
+            esac
+          else
+            echo "proceed=true" >> $GITHUB_OUTPUT
+            echo "✓ trigger=${{ github.event_name }}, proceeding"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.window.outputs.proceed == 'true'
         with:
           ref: main
 
       - uses: actions/setup-node@v4
+        if: steps.window.outputs.proceed == 'true'
         with:
           node-version: '20'
 
       - name: Install dependencies
+        if: steps.window.outputs.proceed == 'true'
         working-directory: ops/card-pending-alert
         run: npm install
 
       - name: Write BigQuery credentials
+        if: steps.window.outputs.proceed == 'true'
         run: |
           mkdir -p $HOME/.claude/credentials
           printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
@@ -36,6 +70,7 @@ jobs:
           BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
 
       - name: Send alert
+        if: steps.window.outputs.proceed == 'true'
         working-directory: ops/card-pending-alert
         run: node index.js
         env:
