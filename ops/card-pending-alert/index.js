@@ -98,6 +98,13 @@ async function fetchPendingCards() {
           FROM \`gowid-prd.mart_limit_application.application_status\`
           WHERE application_type = '신규'
         )
+        -- 카드사 부결/고위드 부결건 제외 (활성 FUEL 등은 유지)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM \`gowid-prd.mart_limit_application.application_status\` r
+          WHERE r.corp_id = f.corp_id
+            AND (r.card_co_rejected_at IS NOT NULL OR r.gowid_rejected_at IS NOT NULL)
+        )
     ),
 
     combined AS (
