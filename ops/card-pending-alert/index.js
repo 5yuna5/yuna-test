@@ -5,7 +5,7 @@
  * - 직전 3개월 도입신청(또는 가입) → 카드사 접수 → 발급 미완료
  * - 당월 도입신청(또는 가입) → 카드사 접수 → 발급 미완료
  * - 고위드 부결/취소 제외, FUEL 표기, 카드사별 건별 트래킹
- * - 도입신청서 없이 인입된 곳은 회원가입일 기준 (*)표기
+ * - 도입신청서 없이 인입된 곳은 회원가입일/법인생성일 기준 코호트 산정
  *
  * Usage:
  *   node index.js                    # 기본 채널로 전송
@@ -204,10 +204,9 @@ function fmtMonth(d) {
 
 function buildCorpLine(c, i) {
   const fuel = c.is_fuel ? ' (FUEL)' : '';
-  const noApp = c.no_card_application ? '*' : '';
   const month = c.cohort_month ? ` (${c.cohort_month})` : '';
   const days = c.biz_days != null ? ` — ${c.biz_days}영업일` : '';
-  return `${i + 1}. ${c.corp_name}${fuel}${noApp}${month}${days}`;
+  return `${i + 1}. ${c.corp_name}${fuel}${month}${days}`;
 }
 
 function groupByCardCompany(items) {
@@ -287,7 +286,7 @@ function buildBlocks(data) {
     type: 'context',
     elements: [{
       type: 'mrkdwn',
-      text: `*도입신청서 없이 가입한 업체 | 영업일 = 카드사 심사 시작 후 경과일(주말 제외) | ${now.toISOString().slice(0, 16)}`,
+      text: `영업일 = 카드사 심사 시작 후 경과일(주말 제외) | ${now.toISOString().slice(0, 16)}`,
     }],
   });
 
