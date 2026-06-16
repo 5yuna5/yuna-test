@@ -50,9 +50,18 @@ async function query(sql) {
 
 async function fetchPendingCards() {
   const rows = await query(`
+    -- 탈회/삭제 법인 (ODS Corp.isDeleted=1) — 고객 요청 탈회 등으로 제거된 법인
+    -- corp_id = 사업자등록번호(하이픈 제거)를 INT64 변환한 값
+    WITH deleted_corps AS (
+      SELECT DISTINCT SAFE_CAST(REPLACE(resCompanyIdentityNo, '-', '') AS INT64) AS corp_id
+      FROM \`gowid-prd.ods_stream_gowid.Corp\`
+      WHERE isDeleted = 1
+        AND SAFE_CAST(REPLACE(resCompanyIdentityNo, '-', '') AS INT64) IS NOT NULL -- NOT IN + NULL 함정 방지
+    ),
+
     -- 소스1: application_status (카드사별 건별 트래킹)
     -- 카드사 접수 완료 + 미승인 + 부결/취소 아닌 건
-    WITH src_appstatus AS (
+    src_appstatus AS (
       SELECT
         la.corp_id,
         la.corp_name,
@@ -73,6 +82,7 @@ async function fetchPendingCards() {
         AND la.card_co_approved_at IS NULL
         AND la.card_co_rejected_at IS NULL
         AND la.card_co_pending_at IS NOT NULL
+        AND la.corp_id NOT IN (SELECT corp_id FROM deleted_corps) -- 탈회 법인 제외
     ),
 
     -- 소스2: card_application_funnel (application_status에 없는 건 보완)
@@ -105,6 +115,7 @@ async function fetchPendingCards() {
           WHERE r.corp_id = f.corp_id
             AND (r.card_co_rejected_at IS NOT NULL OR r.gowid_rejected_at IS NOT NULL)
         )
+        AND f.corp_id NOT IN (SELECT corp_id FROM deleted_corps) -- 탈회 법인 제외
     ),
 
     combined AS (
