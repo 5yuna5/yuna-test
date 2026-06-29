@@ -1,0 +1,14 @@
+{
+  "name": "bizops-due-alert",
+  "version": "1.0.0",
+  "description": "매일 11:00 KST Linear BizOps 팀 당일 마감 미완료 이슈를 Slack 채널에 담당자별 그룹으로 발송",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dry-run": "node index.js --dry-run"
+  },
+  "dependencies": {
+    "@slack/web-api": "^7.14.1",
+    "dotenv": "^17.3.1"
+  }
+}
