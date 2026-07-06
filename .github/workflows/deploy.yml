@@ -9,9 +9,12 @@ permissions:
   pages: write
   id-token: write
 
+# 데이터 업데이트 푸시가 몇 분 내 연달아 일어나면 두 배포가 pages 환경에서
+# 충돌해 "Deployment failed, try again later"로 실패한다. git 커밋은 누적이므로
+# 최신 배포 하나만 실행하면 이전 업데이트도 모두 포함된다 → 이전 배포 취소.
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
