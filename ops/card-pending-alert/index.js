@@ -256,6 +256,13 @@ function normCorpName(name) {
 async function fetchSignFailures() {
   const oldest = Math.floor(Date.now() / 1000) - SIGN_FAIL_LOOKBACK_DAYS * 86400;
   const failures = {};
+  // 테스트/검증용: 실제 채널 대신 고정 이벤트를 주입 (SIGN_FAIL_FIXTURE=경로)
+  if (process.env.SIGN_FAIL_FIXTURE) {
+    const fx = require(process.env.SIGN_FAIL_FIXTURE);
+    for (const [name, v] of Object.entries(fx)) failures[normCorpName(name)] = v;
+    console.log(`[FIXTURE] 전자서명 실패 이벤트 ${Object.keys(failures).length}건 주입`);
+    return { failures, ok: true };
+  }
   try {
     let cursor;
     do {
@@ -278,10 +285,13 @@ async function fetchSignFailures() {
     } while (cursor);
     console.log(`법인 전자서명 실패 이벤트: ${Object.keys(failures).length}개 법인`);
   } catch (err) {
-    // 채널 미초대(not_in_channel) 등은 치명적이지 않음 — 실패 표시만 빠지고 나머지는 그대로 발송.
-    console.error(`[WARN] 전자서명 실패 이벤트 조회 실패 (${err.data ? err.data.error : err.message}) — 해당 표시 생략`);
+    // 조회 실패 시 발송은 계속하되, "실패 표시가 없다"가 "문제가 없다"로 오독되지 않도록
+    // 메시지 자체에 조회 불가 사실을 남긴다.
+    const reason = err.data ? err.data.error : err.message;
+    console.error(`[WARN] 전자서명 실패 이벤트 조회 실패 (${reason}) — 해당 표시 생략`);
+    return { failures, ok: false, error: reason };
   }
-  return failures;
+  return { failures, ok: true };
 }
 
 // 실패 이벤트가 '현재 단계에 진입한 이후'에 발생했는지 (과거 신청건의 옛 실패 제외)
@@ -414,7 +424,8 @@ function buildCohortSection(label, items, blocks, failures) {
   }
 }
 
-function buildBlocks(data, failures) {
+function buildBlocks(data, signFail) {
+  const failures = (signFail && signFail.failures) || {};
   const now = new Date();
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -455,6 +466,15 @@ function buildBlocks(data, failures) {
 
   // Footer
   blocks.push({ type: 'divider' });
+  if (signFail && signFail.ok === false) {
+    blocks.push({
+      type: 'context',
+      elements: [{
+        type: 'mrkdwn',
+        text: `:rotating_light: 법인 전자서명 실패 피드를 읽지 못했습니다 (${signFail.error}). 실패 건에 :warning: 가 누락됐을 수 있습니다 — #bot-법인카드-발급단계 에 봇 초대 필요.`,
+      }],
+    });
+  }
   blocks.push({
     type: 'context',
     elements: [{
@@ -476,8 +496,8 @@ async function main() {
   console.log(`당월: ${data.curr.length}건`);
   console.log(`고객 전자서명 대기(신청서 작성중): ${data.drafting.length}건`);
 
-  const failures = await fetchSignFailures();
-  const blocks = buildBlocks(data, failures);
+  const signFail = await fetchSignFailures();
+  const blocks = buildBlocks(data, signFail);
 
   if (DRY_RUN) {
     console.log('\n[DRY RUN] 슬랙 메시지 미리보기:\n');
