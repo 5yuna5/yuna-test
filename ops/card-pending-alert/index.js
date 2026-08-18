@@ -101,7 +101,7 @@ async function query(sql) {
 async function fetchPendingCards() {
   // card-squad /goal '카드사 심사중'과 동일 기준으로 추출:
   //  - 소스: application_status_materialized (스냅샷, /goal과 동일) — (corp, 카드사) 최신 1건
-  //  - 상태: '카드사 심사중' 또는 '신청서 제출'(심사의견서 발송 대기 단계 포함)
+  //  - 상태: '카드사 심사중' 또는 '신청서 제출'(전문 발송 대기 단계 포함)
   //  - 제외: 발급 완료(CardIssuanceInfo), 탈회(Corp.isDeleted=1), 운영 수동 이탈(Supabase, JS에서 처리)
   //  - 코호트 필터 없음(전체 기간). 표시상으로만 당월/이전으로 분리.
   const rows = await query(`
@@ -241,7 +241,7 @@ function buildCorpLine(c, i) {
   const month = c.cohort_month ? ` (${c.cohort_month})` : '';
   const days = c.biz_days != null
     ? ` — ${c.biz_days}영업일`
-    : (c.card_co_not_received ? ' — 심사의견서 발송 대기' : '');
+    : (c.card_co_not_received ? ' — 전문 발송 대기' : '');
   return `${i + 1}. ${c.corp_name}${fuel}${month}${days}`;
 }
 
@@ -319,7 +319,7 @@ function buildBlocks(data) {
     type: 'context',
     elements: [{
       type: 'mrkdwn',
-      text: `영업일 = 카드사 심사 시작 후 경과일(주말 제외) · /goal '심사중 법인 관리'와 동일 기준(신청서 제출=심사의견서 발송 대기 포함) | ${now.toISOString().slice(0, 16)}`,
+      text: `영업일 = 카드사 심사 시작 후 경과일(주말 제외) · /goal '심사중 법인 관리'와 동일 기준(신청서 제출=전문 발송 대기 포함) | ${now.toISOString().slice(0, 16)}`,
     }],
   });
 
