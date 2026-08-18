@@ -224,6 +224,7 @@ async function fetchPendingCards() {
       is_fuel: r.is_fuel,
       latest_status: r.latest_status,
       opinion_submitted_at: r.opinion_submitted_at,
+      stage_anchor_at: r.stage_anchor_at,
       cohort_month: r.cohort_month,
       biz_days: r.biz_days_in_stage,
     };
@@ -232,6 +233,69 @@ async function fetchPendingCards() {
   }
 
   return { prev3, curr, drafting };
+}
+
+// ─── 법인 전자서명 실패 감지 (#bot-법인카드-발급단계) ───
+// 고객(대표자) 전자서명이 끝나 '전자서명 완료' → APPLICATION_SUBMITTED로 넘어간 뒤,
+// 고위드가 카드사로 보내기 위한 '법인 전자서명' 처리가 서버 에러로 실패하는 케이스가 있음.
+// 이때 ODS에는 아무 흔적이 안 남아 상태가 '신청서 제출'에 머물러 정상 대기처럼 보인다.
+// (실측: 모아보아 08-16 14:20:33 전자서명 완료 → 14:21:10 법인 전자서명 실패 → 08-18 09:57 재시도 실패)
+// 경과일 기준만으로는 당일 장애를 못 잡으므로 이 채널의 실패 이벤트를 직접 읽는다.
+const STEP_EVENT_CHANNEL = 'C04M8QMRB0E'; // #bot-법인카드-발급단계
+const SIGN_FAIL_LOOKBACK_DAYS = 14;
+
+// 법인명 정규화: 법인격 표기 흔들림 흡수 ((주)/㈜/주식회사/공백)
+function normCorpName(name) {
+  return String(name || '')
+    .replace(/\(주\)|㈜|주식회사|\(유\)|유한회사/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+// 법인명(정규화) → { ts: 마지막 실패 시각(epoch초), reason }
+async function fetchSignFailures() {
+  const oldest = Math.floor(Date.now() / 1000) - SIGN_FAIL_LOOKBACK_DAYS * 86400;
+  const failures = {};
+  try {
+    let cursor;
+    do {
+      const r = await slack.conversations.history({
+        channel: STEP_EVENT_CHANNEL, oldest: String(oldest), limit: 200, cursor,
+      });
+      for (const m of r.messages || []) {
+        const text = m.text || '';
+        if (!/법인 전자서명\s*-\s*실패/.test(text)) continue;
+        const nameMatch = text.match(/법인명\s*:\s*(.+)/);
+        if (!nameMatch) continue;
+        const key = normCorpName(nameMatch[1].trim());
+        const reasonMatch = text.match(/실패\(([^)]*)\)/);
+        const ts = Number(m.ts);
+        if (!failures[key] || ts > failures[key].ts) {
+          failures[key] = { ts, reason: reasonMatch ? reasonMatch[1].trim() : '' };
+        }
+      }
+      cursor = r.response_metadata && r.response_metadata.next_cursor;
+    } while (cursor);
+    console.log(`법인 전자서명 실패 이벤트: ${Object.keys(failures).length}개 법인`);
+  } catch (err) {
+    // 채널 미초대(not_in_channel) 등은 치명적이지 않음 — 실패 표시만 빠지고 나머지는 그대로 발송.
+    console.error(`[WARN] 전자서명 실패 이벤트 조회 실패 (${err.data ? err.data.error : err.message}) — 해당 표시 생략`);
+  }
+  return failures;
+}
+
+// 실패 이벤트가 '현재 단계에 진입한 이후'에 발생했는지 (과거 신청건의 옛 실패 제외)
+function signFailureFor(c, failures) {
+  const f = failures[normCorpName(c.corp_name)];
+  if (!f) return null;
+  if (!c.stage_anchor_at) return f;
+  return f.ts >= Date.parse(`${c.stage_anchor_at}T00:00:00+09:00`) / 1000 ? f : null;
+}
+
+function fmtKstTime(ts) {
+  return new Date(Number(ts) * 1000)
+    .toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' })
+    .slice(5, 16); // MM-DD HH:MM
 }
 
 // ─── Slack Message ───
@@ -289,15 +353,22 @@ function stageLabel(c) {
   return '전문 발송 대기';
 }
 
-function buildCorpLine(c, i) {
+function buildCorpLine(c, i, failures) {
   const fuel = c.is_fuel ? ' (FUEL)' : '';
   const month = c.cohort_month ? ` (${c.cohort_month})` : '';
   const days = c.biz_days != null ? `${c.biz_days}영업일` : null;
   const label = stageLabel(c);
-  const warn = isStalled(c) ? ' :warning:' : '';
+
+  // 법인 전자서명 실패는 경과일과 무관하게 즉시 표시 (당일 장애도 놓치지 않도록)
+  const fail = failures ? signFailureFor(c, failures) : null;
+  const warn = (fail || isStalled(c)) ? ' :warning:' : '';
+  const failNote = fail
+    ? ` · 법인 전자서명 실패${fail.reason ? `(${fail.reason})` : ''} ${fmtKstTime(fail.ts)}`
+    : '';
+
   const suffix = label
-    ? ` — ${label}${days ? ` (${days})` : ''}${warn}`
-    : (days ? ` — ${days}` : '');
+    ? ` — ${label}${days ? ` (${days})` : ''}${warn}${failNote}`
+    : (days ? ` — ${days}${warn}${failNote}` : '');
   return `${i + 1}. ${c.corp_name}${fuel}${month}${suffix}`;
 }
 
@@ -311,8 +382,8 @@ function groupByCardCompany(items) {
   return groups;
 }
 
-function buildCardCompanySection(cardCompany, items, blocks) {
-  const lines = items.map((c, i) => buildCorpLine(c, i));
+function buildCardCompanySection(cardCompany, items, blocks, failures) {
+  const lines = items.map((c, i) => buildCorpLine(c, i, failures));
   blocks.push({
     type: 'section',
     text: {
@@ -322,7 +393,7 @@ function buildCardCompanySection(cardCompany, items, blocks) {
   });
 }
 
-function buildCohortSection(label, items, blocks) {
+function buildCohortSection(label, items, blocks, failures) {
   blocks.push({ type: 'divider' });
   blocks.push({
     type: 'section',
@@ -339,11 +410,11 @@ function buildCohortSection(label, items, blocks) {
 
   const groups = groupByCardCompany(items);
   for (const [cardCompany, groupItems] of Object.entries(groups)) {
-    buildCardCompanySection(cardCompany, groupItems, blocks);
+    buildCardCompanySection(cardCompany, groupItems, blocks, failures);
   }
 }
 
-function buildBlocks(data) {
+function buildBlocks(data, failures) {
   const now = new Date();
   const currMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -359,14 +430,16 @@ function buildBlocks(data) {
   buildCohortSection(
     `${fmtMonth(currMonth)} 이전 (전체) 도입신청 → 카드사 심사중`,
     data.prev3,
-    blocks
+    blocks,
+    failures
   );
 
   // ── 당월 ──
   buildCohortSection(
     `${fmtMonth(currMonth)} 도입신청 → 카드사 심사중`,
     data.curr,
-    blocks
+    blocks,
+    failures
   );
 
   // ── 고객 전자서명 대기 (신청서 작성중) ──
@@ -375,7 +448,8 @@ function buildBlocks(data) {
     buildCohortSection(
       '고객 전자서명 대기 (신청서 작성중) — 위 집계와 별도',
       data.drafting,
-      blocks
+      blocks,
+      failures
     );
   }
 
@@ -385,7 +459,7 @@ function buildBlocks(data) {
     type: 'context',
     elements: [{
       type: 'mrkdwn',
-      text: `영업일 = 현재 단계 진입 후 경과일(주말 제외) · 심사의견서는 비씨카드 전용 단계 · 전문 = 고위드→카드사 신청 전송 · :warning: = 해당 단계 정상 범위(p90) 초과, 전송 실패 등 확인 필요 (전문발송 신한 ${SEND_DELAY_ALERT['신한카드']}일↑·롯데 ${SEND_DELAY_ALERT['롯데카드']}일↑·비씨 ${SEND_DELAY_ALERT['비씨카드']}일↑ / 전자서명 ${SIGN_DELAY_ALERT}일↑) · 상단 2개 섹션은 /goal '심사중 법인 관리'와 동일 기준 | ${now.toISOString().slice(0, 16)}`,
+      text: `영업일 = 현재 단계 진입 후 경과일(주말 제외) · 심사의견서는 비씨카드 전용 단계 · 전문 = 고위드→카드사 신청 전송 · :warning: = 법인 전자서명 실패 또는 해당 단계 정상 범위(p90) 초과 (전문발송 신한 ${SEND_DELAY_ALERT['신한카드']}일↑·롯데 ${SEND_DELAY_ALERT['롯데카드']}일↑·비씨 ${SEND_DELAY_ALERT['비씨카드']}일↑ / 전자서명 ${SIGN_DELAY_ALERT}일↑) · 상단 2개 섹션은 /goal '심사중 법인 관리'와 동일 기준 | ${now.toISOString().slice(0, 16)}`,
     }],
   });
 
@@ -402,7 +476,8 @@ async function main() {
   console.log(`당월: ${data.curr.length}건`);
   console.log(`고객 전자서명 대기(신청서 작성중): ${data.drafting.length}건`);
 
-  const blocks = buildBlocks(data);
+  const failures = await fetchSignFailures();
+  const blocks = buildBlocks(data, failures);
 
   if (DRY_RUN) {
     console.log('\n[DRY RUN] 슬랙 메시지 미리보기:\n');
