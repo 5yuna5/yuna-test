@@ -57,6 +57,14 @@ const SERVICE = [
   [/카드/, '카드'],
 ];
 
+// 서비스별 담당자. slack=멘션·알림용, linear=이슈 담당자 배정용(OPS 팀 멤버여야 함).
+// 둘 중 하나만 채워도 동작한다. 비워두면 멘션·배정을 건너뛴다.
+const OWNERS = {
+  '카드':     { slack: null, linear: null },
+  '성장금융': { slack: null, linear: null },
+  '지출관리': { slack: null, linear: null },
+};
+
 // 요청유형 → 제목 축약형
 const TYPE_SHORT = [
   [/제휴사|카드사/, '제휴사 확인'],
@@ -254,23 +262,67 @@ function parseRequest(text) {
   const clean = (text || '').replace(/\*/g, '');
   const out = { kv: {}, sec: {} };
   let cur = null;
+
+  const push = (k, v) => {
+    if (!k) return;
+    const t = v.join('\n').trim();
+    if (t) out.kv[k] = t;
+  };
+  let buf = [];
+
   for (const raw of clean.split('\n')) {
     const line = raw.trim();
+
+    // (a) '━ 섹션명 ━' 구분자
     const sec = /^[━─=-]{1,3}\s*(.+?)\s*[━─=-]{1,3}$/.exec(line);
     if (sec) {
-      cur = sec[1].replace(/\s/g, '');
-      out.sec[cur] = [];
+      push(cur, buf); buf = [];
+      cur = normLabel(sec[1]);
       continue;
     }
-    const kv = /^(.{1,12}?)\s*::\s*(.*)$/.exec(line);
-    if (kv && !cur) {
-      out.kv[kv[1].replace(/\s/g, '')] = kv[2].trim();
+    // (b) '키 :: 값' 인라인
+    const kv = /^(.{1,24}?)\s*::\s*(.*)$/.exec(line);
+    if (kv && normLabel(kv[1])) {
+      push(cur, buf); buf = [];
+      cur = normLabel(kv[1]);
+      buf = [kv[2]];
       continue;
     }
-    if (cur) out.sec[cur].push(raw);
+    // (c) 라벨만 단독으로 있는 줄 (Workflow Builder 기본 스타일)
+    const lab = normLabel(line);
+    if (lab && line.length <= 30) {
+      push(cur, buf); buf = [];
+      cur = lab;
+      continue;
+    }
+    // (d) 그 외는 현재 필드의 값
+    if (cur) buf.push(raw);
   }
-  for (const k of Object.keys(out.sec)) out.sec[k] = out.sec[k].join('\n').trim();
+  push(cur, buf);
+
+  // 하위호환: 다중행 필드를 sec으로도 노출
+  for (const k of ['요청내용', '완료기준', '참고']) if (out.kv[k]) out.sec[k] = out.kv[k];
   return out;
+}
+
+/** 라벨 문구를 표준 필드명으로. 못 알아보면 null (= 값 줄로 취급) */
+function normLabel(v) {
+  const t = (v || '').trim().replace(/[:：.。\s]+$/, '').replace(/\s+/g, '');
+  if (!t) return null;
+  const T = [
+    [/^(법인명?|법인명또는사업자번호|사업자번호|법인식별자)$/, '법인'],
+    [/^(서비스|서비스구분|어떤서비스건인가요)$/, '서비스'],
+    [/^(요청유형|무엇을해드릴까요)$/, '요청유형'],
+    [/^(업무영역|어떤건인가요)$/, '업무영역'],
+    [/^(제휴사|관련제휴사)$/, '제휴사'],
+    [/^(고객영향|고객영향도)$/, '고객영향'],
+    [/^(요청자|신청자)$/, '요청자'],
+    [/^(요청내용|상세요청사항|상세요청사항을입력해주세요|상세내용|내용)$/, '요청내용'],
+    [/^(완료기준|원하는결과|무엇이되면끝인가요)$/, '완료기준'],
+    [/^(참고|참고링크|참고자료|참고링크자료)$/, '참고'],
+  ];
+  for (const [re, name] of T) if (re.test(t)) return name;
+  return null;
 }
 
 // ─── BQ 법인 조회 ───
@@ -337,6 +389,7 @@ function buildIssue(p, corp, permalink, requester) {
   const impact = pick(IMPACT, p.kv['고객영향'], { priority: 3, dueBiz: 2, sla: '당일' });
   const partner = (p.kv['제휴사'] || '').trim() || '해당없음';
   const service = pick(SERVICE, p.kv['서비스'], null);
+  const owner = (service && OWNERS[service]) || {};
   const title = `[업무요청] ${typeShort}_${corp.segment}_${partner}_${corp.corpName}`;
 
   const waitLabel =
@@ -370,7 +423,8 @@ function buildIssue(p, corp, permalink, requester) {
     priority: impact.priority,
     dueDate: addBizDays(todayKst(), impact.dueBiz),
     labelIds,
-    _meta: { typeShort, waitLabel, service, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
+    assigneeId: owner.linear || undefined,
+    _meta: { typeShort, waitLabel, service, owner, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
   };
 }
 
@@ -384,8 +438,22 @@ async function main() {
     oldest: sinceToTs(SINCE),
     limit: LIMIT,
   });
+  // 판별 3중화. Workflow Builder 메시지는 본문에 워크플로 이름이 없을 수 있고,
+  // username/bot_profile도 앱 설정에 따라 비어 온다. 그래서 구조 판별을 최후 보루로 둔다.
+  const isBot = (m) => Boolean(m.bot_id) || m.subtype === 'bot_message' || Boolean(m.app_id);
+  const isTarget = (m) => {
+    const byMarker =
+      (m.text || '').includes(MARKER) ||
+      (m.username || '').includes(MARKER) ||
+      (m.bot_profile?.name || '').includes(MARKER);
+    if (byMarker) return true;
+    // 봇이 보낸 메시지이면서 필수 필드가 모두 파싱되면 요청으로 본다.
+    if (!isBot(m)) return false;
+    const k = parseRequest(m.text).kv;
+    return Boolean(k['요청유형'] && k['서비스'] && k['법인']);
+  };
   const targets = (hist.messages || [])
-    .filter((m) => (m.text || '').includes(MARKER))
+    .filter(isTarget)
     .filter((m) => !state.processed[m.ts])
     .sort((a, b) => Number(a.ts) - Number(b.ts));
 
@@ -439,8 +507,9 @@ async function main() {
       `*분류*　　　${issue._meta.service ? issue._meta.service + ' · ' : ''}${issue._meta.typeShort} · ${corp.segment} · ${issue._meta.partner}`,
       `*법인*　　　${corp.corpName}${corp.brn ? ` (${fmtBrn(corp.brn)})` : ''}`,
       `*최초 회신 목표*　*${issue._meta.deadline}*`,
-      '',
-      '담당자가 지정되면 이 스레드로 안내드립니다.',
+      ...(issue._meta.owner?.slack
+        ? ['', `담당 <@${issue._meta.owner.slack}> 님이 확인합니다.`]
+        : ['', '담당자가 지정되면 이 스레드로 안내드립니다.']),
     ].join('\n');
     await slack.chat.postMessage({
       channel: INTAKE_CHANNEL,
