@@ -45,7 +45,17 @@ const LABELS = {
   '대기/타팀': '58a66453-3884-4e77-acb1-4d9ff5af69f2',
   '대기/카드사': 'fbb3f776-24d0-42ba-8e02-892a2cc790c5',
   '대기/고객': '23311dc0-1e9a-4c1e-a485-a58c3dde3a70',
+  '서비스/카드': '0b751f15-cfba-41d7-906f-8f8beabb6a8e',
+  '서비스/성장금융': '7ff881f5-6979-4049-b6ac-033a2b791872',
+  '서비스/지출관리': '9a0e25c0-fe73-4914-a2a5-0614a09fc868',
 };
+
+// 서비스 구분 → 라벨. 폼 선택지 문구가 바뀌어도 견디도록 패턴 매칭.
+const SERVICE = [
+  [/성장 ?금융|대출|여신실행/, '성장금융'],
+  [/지출 ?관리|경비|영수증|ERP/, '지출관리'],
+  [/카드/, '카드'],
+];
 
 // 요청유형 → 제목 축약형
 const TYPE_SHORT = [
@@ -326,12 +336,15 @@ function buildIssue(p, corp, permalink, requester) {
   const typeShort = pick(TYPE_SHORT, p.kv['요청유형'], '기타 요청');
   const impact = pick(IMPACT, p.kv['고객영향'], { priority: 3, dueBiz: 2, sla: '당일' });
   const partner = (p.kv['제휴사'] || '').trim() || '해당없음';
+  const service = pick(SERVICE, p.kv['서비스'], null);
   const title = `[업무요청] ${typeShort}_${corp.segment}_${partner}_${corp.corpName}`;
 
   const waitLabel =
     typeShort === '제휴사 확인' ? '대기/카드사' : typeShort === '장애 신고' ? '대기/타팀' : '대기/내부';
+  const labelIds = [LABELS[waitLabel], service ? LABELS[`서비스/${service}`] : null].filter(Boolean);
 
   const lines = [
+    `**서비스** ${p.kv['서비스'] || '-'}`,
     `**요청자** ${requester || p.kv['요청자'] || '-'}`,
     `**법인** ${corp.corpName}${corp.brn ? ` \`${fmtBrn(corp.brn)}\`` : ''}${corp.segment === '기존' && corp.issuedCC ? ` · 보유 ${corp.issuedCC}` : ''}`,
     `**요청유형** ${p.kv['요청유형'] || '-'}`,
@@ -356,8 +369,8 @@ function buildIssue(p, corp, permalink, requester) {
     description: lines.join('\n'),
     priority: impact.priority,
     dueDate: addBizDays(todayKst(), impact.dueBiz),
-    labelIds: [LABELS[waitLabel]].filter(Boolean),
-    _meta: { typeShort, waitLabel, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
+    labelIds,
+    _meta: { typeShort, waitLabel, service, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
   };
 }
 
@@ -423,7 +436,7 @@ async function main() {
       `${who ? who + ' ' : ''}✅ *요청이 접수되었습니다*`,
       '',
       `*접수번호*　<${iss.url}|${iss.identifier}>`,
-      `*분류*　　　${issue._meta.typeShort} · ${corp.segment} · ${issue._meta.partner}`,
+      `*분류*　　　${issue._meta.service ? issue._meta.service + ' · ' : ''}${issue._meta.typeShort} · ${corp.segment} · ${issue._meta.partner}`,
       `*법인*　　　${corp.corpName}${corp.brn ? ` (${fmtBrn(corp.brn)})` : ''}`,
       `*최초 회신 목표*　*${issue._meta.deadline}*`,
       '',
