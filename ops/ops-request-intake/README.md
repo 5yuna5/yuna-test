@@ -118,11 +118,21 @@ Slack Workflow 폼 → 인테이크 채널에 구조화 메시지
 현재 워크스페이스의 어떤 토큰도 이 스코프를 갖고 있지 않다(4종 전부 확인).
 **스코프가 없으면 이모지 대신 스레드 코멘트로 자동 대체된다** — 동작은 하지만 채널에서 한눈에 보이지 않는다.
 
-추가 방법 (`buddy` 앱 기준):
-1. api.slack.com/apps → 해당 앱 → **OAuth & Permissions**
-2. Bot Token Scopes에 **`reactions:write`** 추가
+### 서비스전략봇 스코프 현황 (2026-09-07 실측)
+
+| API | 스코프 | 상태 |
+|---|---|---|
+| `conversations.history` | channels:history | ✅ |
+| `chat.postMessage` | chat:write | ✅ |
+| `chat.getPermalink` | — | ✅ |
+| `users.info` | **users:read** | ❌ 없음 (없으면 Linear 본문에 실명 대신 `<@U…>` 표기) |
+| `reactions.add` | **reactions:write** | ❌ 없음 (없으면 스레드 코멘트로 대체) |
+
+추가 방법:
+1. api.slack.com/apps → **서비스전략봇** → **OAuth & Permissions**
+2. Bot Token Scopes에 **`reactions:write`**, **`users:read`** 추가
 3. **Reinstall to Workspace**
-4. 토큰이 바뀌면 `~/.claude.json`의 `mcpServers.slack.env.SLACK_BOT_TOKEN` 갱신
+4. 토큰 문자열이 바뀌면 `crm-slack-bot/.env`의 `SLACK_BOT_TOKEN` 갱신
 
 스코프가 붙으면 코드 변경 없이 이모지 경로로 자동 전환된다.
 
@@ -144,14 +154,16 @@ OPS_INTAKE_CHANNEL=C019ZSK6NNR node index.js   # 채널 override (테스트)
 | 대상 | 경로 |
 |---|---|
 | Linear | macOS keychain `linear-api-key` |
-| Slack | `~/.claude.json` → `mcpServers.slack.env.SLACK_BOT_TOKEN` (env `SLACK_BOT_TOKEN`로 override) |
+| Slack | **서비스전략봇**(구 crm-history-bot) — `pm/context/card/operations/crm-slack-bot/.env` 의 `SLACK_BOT_TOKEN`<br>env `SLACK_BOT_TOKEN`로 override 가능. 읽기 실패 시 `~/.claude.json` MCP 토큰으로 폴백 |
 | BigQuery | `~/.claude/credentials/gowid-prd-bigquery-key.json` |
 
 ## 멱등성
 
 봇 토큰에 `reactions:write` 스코프가 없어 이모지 마커를 쓸 수 없다.
 → 처리 완료된 메시지 ts를 `state/processed.json`에 적재한다 (60일 후 자동 정리).
-**이 파일이 지워지면 재실행 시 중복 생성된다.**
+**이 파일이 지워지면 재실행 시 중복 생성된다.** (실제로 겪었다 — 8건 중복 생성)
+
+Linear에서 이슈가 삭제되면 다음 동기화 때 자동으로 추적 해제된다. 그렇게 하지 않으면 영구히 조회 대상으로 남는다.
 
 ## ⚠️ 주의
 

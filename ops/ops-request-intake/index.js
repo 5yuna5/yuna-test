@@ -210,11 +210,19 @@ function saveState(st) {
 }
 
 // ─── Slack ───
+// 운영 계정은 **서비스전략봇**(구 crm-history-bot). bizops-due-alert와 같은 .env를 쓴다.
+// 필요한 스코프: channels:history · chat:write · reactions:write · users:read
+const CRM_ENV = '/Users/gowid/yuna-test/pm/context/card/operations/crm-slack-bot/.env';
 function slackToken() {
   if (process.env.SLACK_BOT_TOKEN) return process.env.SLACK_BOT_TOKEN;
+  try {
+    const m = /^SLACK_BOT_TOKEN=(.+)$/m.exec(fs.readFileSync(CRM_ENV, 'utf-8'));
+    if (m) return m[1].trim().replace(/^["']|["']$/g, '');
+  } catch {}
+  // 폴백: 로컬 MCP 봇 토큰
   const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf-8'));
   const tok = cfg?.mcpServers?.slack?.env?.SLACK_BOT_TOKEN;
-  if (!tok) throw new Error('[intake] Slack 봇 토큰을 찾을 수 없습니다 (.claude.json mcpServers.slack).');
+  if (!tok) throw new Error('[intake] Slack 봇 토큰을 찾을 수 없습니다 (crm-slack-bot/.env 또는 .claude.json).');
   return tok;
 }
 const slack = new WebClient(slackToken());
@@ -499,7 +507,13 @@ async function syncStates(state) {
 
   for (const [ts, rec] of pending) {
     const iss = byId[rec.issueId];
-    if (!iss) continue;
+    if (!iss) {
+      // Linear에서 삭제된 이슈. 추적에서 내리지 않으면 영구히 조회 대상으로 남는다.
+      rec.done = true;
+      rec.note = 'linear-issue-missing';
+      console.log(`  · ${rec.identifier} 추적 해제 (Linear에서 삭제됨)`);
+      continue;
+    }
     const type = iss.state?.type;
 
     if (!rec.started && iss.assignee) {
