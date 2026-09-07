@@ -95,6 +95,18 @@ const TYPE_SHORT = [
   [/예외|승인/, '예외 승인'],
 ];
 
+// 제휴사 폼 항목이 없을 때 본문에서 추론한다. 이름은 dw_dimension.card_company 표준명.
+// (국민카드이지 KB국민카드가 아니다 — 마트와 조인할 때 조용히 어긋난다)
+const PARTNER_HINT = [
+  [/비씨|BC카드|\bBC\b/i, '비씨카드'],
+  [/신한/, '신한카드'],
+  [/롯데/, '롯데카드'],
+  [/국민카드|KB국민|\bKB\b/i, '국민카드'],
+  [/삼성카드/, '삼성카드'],
+  [/하나은행|농협|기업은행|우리은행|국세청|등기소/, '은행·기관'],
+  [/KPN|VAN|PG사/i, 'KPN·PG'],
+];
+
 // 고객영향 → priority / 영업일 기한 / 최초회신 목표
 const IMPACT = [
   [/못 ?쓰|사용.*막|막혀/, { priority: 1, dueBiz: 0, sla: '30분', mins: 30 }],
@@ -440,10 +452,21 @@ async function lookupCorp(input) {
 function buildIssue(p, corp, permalink, requester) {
   const typeShort = pick(TYPE_SHORT, p.kv['요청유형'], '기타 요청');
   const impact = pick(IMPACT, p.kv['고객영향'], { priority: 3, dueBiz: 2, sla: '당일' });
-  const partner = (p.kv['제휴사'] || '').trim() || '해당없음';
+  // 제휴사: 폼 값 우선. 없으면 요청 텍스트에서 추론(폼에 항목이 생기면 자연히 폼 값이 이긴다).
+  const partnerRaw = (p.kv['제휴사'] || '').trim();
+  const hintSource = [p.kv['법인'], p.kv['요청내용'], p.kv['업무영역'], p.kv['요청유형']].filter(Boolean).join(' ');
+  const partner = partnerRaw || pick(PARTNER_HINT, hintSource, null) || '해당없음';
+
+  // 제목 넷째 칸: 조회된 법인명 → 없으면 업무영역 → 없으면 해당없음.
+  // 조회 실패(미확인)한 입력값은 식별자로 못 쓰므로 제목에 넣지 않고 본문에만 남긴다.
+  const domain = (p.kv['업무영역'] || '').trim();
+  const resolved = corp.segment === '기존' || corp.segment === '신규';
+  const subject = resolved ? corp.corpName : domain || '해당없음';
+  const segment = resolved ? corp.segment : '해당없음';
+
   const service = pick(SERVICE, p.kv['서비스'], null);
   const owner = (service && OWNERS[service]) || {};
-  const title = `[업무요청] ${typeShort}_${corp.segment}_${partner}_${corp.corpName}`;
+  const title = `[업무요청] ${typeShort}_${segment}_${partner}_${subject}`;
 
   const waitLabel =
     typeShort === '제휴사 확인' ? '대기/카드사' : typeShort === '장애 신고' ? '대기/타팀' : '대기/내부';
@@ -452,7 +475,9 @@ function buildIssue(p, corp, permalink, requester) {
   const lines = [
     `**서비스** ${p.kv['서비스'] || '-'}`,
     `**요청자** ${requester || p.kv['요청자'] || '-'}`,
-    `**법인** ${corp.corpName}${corp.brn ? ` \`${fmtBrn(corp.brn)}\`` : ''}${corp.segment === '기존' && corp.issuedCC ? ` · 보유 ${corp.issuedCC}` : ''}`,
+    resolved
+      ? `**법인** ${corp.corpName}${corp.brn ? ` \`${fmtBrn(corp.brn)}\`` : ''}${corp.segment === '기존' && corp.issuedCC ? ` · 보유 ${corp.issuedCC}` : ''}`
+      : `**법인** ${corp.internal ? '내부 건 (고객 특정 없음)' : `입력값 \`${corp.corpName}\` — 법인 조회 안 됨`}`,
     `**요청유형** ${p.kv['요청유형'] || '-'}`,
     `**업무영역** ${p.kv['업무영역'] || '-'}`,
     `**제휴사** ${partner}`,
@@ -466,7 +491,8 @@ function buildIssue(p, corp, permalink, requester) {
   ];
   if (p.sec['참고']) lines.push('', '### 참고', p.sec['참고']);
   if (corp.segment === '미확인') {
-    lines.push('', `> ⚠️ 법인 자동조회 실패${corp.ambiguous ? '(동명 법인 2건 이상)' : '(미등록)'} — 신규/기존을 운영팀이 보정해주세요.`);
+    lines.push('', `> ⚠️ \`${corp.corpName}\` 로는 법인을 찾지 못했습니다${corp.ambiguous ? ' (동명 법인 2건 이상)' : ''}.`);
+    lines.push('> 고객 건이라면 사업자번호로 다시 확인하고, 내부 건이라면 그대로 두셔도 됩니다.');
   }
   lines.push('', '---', `🔗 [Slack 원본 스레드](${permalink})`, '_Slack 업무요청 Workflow 자동 생성_');
 
