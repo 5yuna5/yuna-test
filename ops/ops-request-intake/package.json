@@ -1,0 +1,14 @@
+{
+  "name": "ops-request-intake",
+  "version": "1.0.0",
+  "description": "Slack 업무요청 Workflow 메시지를 Linear BizOps(OPS) 이슈로 자동 생성하는 인테이크 스크립트",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dry-run": "node index.js --dry-run"
+  },
+  "dependencies": {
+    "@slack/web-api": "^7.14.1",
+    "@google-cloud/bigquery": "^8.2.0"
+  }
+}
