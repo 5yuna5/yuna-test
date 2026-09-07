@@ -87,12 +87,40 @@ Slack Workflow 폼 → 인테이크 채널에 구조화 메시지
 
 `대기/` 라벨은 **지금 공이 누구 코트에 있는가**를 뜻하며, `bizops-due-alert` 미결 알럿의 멘션 대상을 가른다.
 
+## 상태 동기화 (Linear → Slack)
+
+접수 후에도 5분마다 추적 중인 이슈의 담당자·상태를 읽어 **원본 메시지에 이모지를 붙인다.**
+채널을 훑는 것만으로 누가 시작했고 무엇이 끝났는지 보이게 하는 것이 목적이다.
+
+| 트리거 | 이모지 | 의미 |
+|---|---|---|
+| Linear 담당자 배정됨 | ▶️ `arrow_forward` | 확인 시작 |
+| 상태 = Done | ✅ `white_check_mark` | 처리 완료 |
+| 상태 = Canceled | 🚫 `no_entry_sign` | 종료(불가·반려) |
+
+한 번 `done` 처리된 건은 추적에서 빠지므로 매 회 조회량은 미결 건수만큼이다.
+
+### ⚠️ `reactions:write` 스코프가 필요하다
+
+현재 워크스페이스의 어떤 토큰도 이 스코프를 갖고 있지 않다(4종 전부 확인).
+**스코프가 없으면 이모지 대신 스레드 코멘트로 자동 대체된다** — 동작은 하지만 채널에서 한눈에 보이지 않는다.
+
+추가 방법 (`buddy` 앱 기준):
+1. api.slack.com/apps → 해당 앱 → **OAuth & Permissions**
+2. Bot Token Scopes에 **`reactions:write`** 추가
+3. **Reinstall to Workspace**
+4. 토큰이 바뀌면 `~/.claude.json`의 `mcpServers.slack.env.SLACK_BOT_TOKEN` 갱신
+
+스코프가 붙으면 코드 변경 없이 이모지 경로로 자동 전환된다.
+
 ## 실행
 
 ```bash
 node index.js                 # 처리 + Linear 생성 + 스레드 회신
 node index.js --dry-run       # 파싱·조회·제목생성까지만 (쓰기 없음)
 node index.js --since 7d      # 조회 시작 시점 (기본 3d)
+node index.js --sync-only     # 상태 동기화만 (이모지 반영)
+node index.js --intake-only   # 접수만 (동기화 생략)
 OPS_INTAKE_CHANNEL=C019ZSK6NNR node index.js   # 채널 override (테스트)
 ```
 

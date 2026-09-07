@@ -59,6 +59,10 @@ const SERVICE = [
 
 // 서비스별 담당자. slack=멘션·알림용, linear=이슈 담당자 배정용(OPS 팀 멤버여야 함).
 // 둘 중 하나만 채워도 동작한다. 비워두면 멘션·배정을 건너뛴다.
+// 진행 상태를 채널에서 한눈에 보이게 하는 이모지.
+// started = Linear 담당자 배정됨 / done = Done / canceled = Canceled
+const REACTIONS = { started: 'arrow_forward', done: 'white_check_mark', canceled: 'no_entry_sign' };
+
 const OWNERS = {
   '카드':     { slack: null, linear: null },
   '성장금융': { slack: null, linear: null },
@@ -91,6 +95,8 @@ const argVal = (flag, dflt) => {
   const i = args.indexOf(flag);
   return i >= 0 && args[i + 1] ? args[i + 1] : dflt;
 };
+const SYNC_ONLY = args.includes('--sync-only');
+const INTAKE_ONLY = args.includes('--intake-only');
 const LIMIT = Number(argVal('--limit', '200'));
 const SINCE = argVal('--since', '3d');
 
@@ -428,10 +434,87 @@ function buildIssue(p, corp, permalink, requester) {
   };
 }
 
+// ─── 상태 동기화 (Linear → Slack 리액션) ───
+let _reactionScopeMissing = false;
+/** 리액션 추가. 이미 달려 있으면 성공으로 본다. 스코프가 없으면 false를 돌려주고 이후 호출을 건너뛴다. */
+async function react(ts, name) {
+  if (_reactionScopeMissing) return false;
+  try {
+    await slack.reactions.add({ channel: INTAKE_CHANNEL, timestamp: ts, name });
+    return true;
+  } catch (e) {
+    const err = e?.data?.error;
+    if (err === 'already_reacted') return true;
+    if (err === 'missing_scope' || err === 'not_allowed_token_type') {
+      _reactionScopeMissing = true;
+      console.error(`  ⚠️ 리액션 스코프 없음(reactions:write) — 이모지 대신 스레드 코멘트로 대체합니다.`);
+      return false;
+    }
+    console.error(`  ⚠️ 리액션 실패(${name}):`, err || e.message);
+    return false;
+  }
+}
+
+/** 추적 중인 이슈의 담당자·상태를 읽어 원본 메시지에 이모지를 반영한다. */
+async function syncStates(state) {
+  const pending = Object.entries(state.processed).filter(([, v]) => v && v.issueId && !v.done);
+  if (!pending.length) {
+    console.log('[sync] 추적 대상 없음');
+    return 0;
+  }
+  const data = await linear(
+    `query($ids:[ID!]){ issues(filter:{id:{in:$ids}}, first:250){ nodes{ id identifier url assignee{ name } state{ name type } } } }`,
+    { ids: pending.map(([, v]) => v.issueId) }
+  );
+  const byId = Object.fromEntries((data.issues?.nodes || []).map((n) => [n.id, n]));
+  let changed = 0;
+
+  for (const [ts, rec] of pending) {
+    const iss = byId[rec.issueId];
+    if (!iss) continue;
+    const type = iss.state?.type;
+
+    if (!rec.started && iss.assignee) {
+      const ok = await react(ts, REACTIONS.started);
+      if (!ok) {
+        await slack.chat.postMessage({
+          channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
+          text: `▶️ *${iss.assignee.name}* 님이 확인을 시작했습니다. (<${iss.url}|${iss.identifier}>)`,
+        });
+      }
+      rec.started = true; changed++;
+      console.log(`  ▶️ ${iss.identifier} 시작 — ${iss.assignee.name}`);
+    }
+
+    if (type === 'completed' || type === 'canceled') {
+      const emoji = type === 'completed' ? REACTIONS.done : REACTIONS.canceled;
+      const ok = await react(ts, emoji);
+      if (!ok) {
+        await slack.chat.postMessage({
+          channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
+          text: type === 'completed'
+            ? `✅ 처리 완료되었습니다. (<${iss.url}|${iss.identifier}>)`
+            : `🚫 이 요청은 종료되었습니다. 사유는 <${iss.url}|${iss.identifier}>에 있습니다.`,
+        });
+      }
+      rec.done = true; changed++;
+      console.log(`  ${type === 'completed' ? '✅' : '🚫'} ${iss.identifier} ${iss.state.name}`);
+    }
+  }
+  console.log(`[sync] 추적 ${pending.length}건 · 상태변경 ${changed}건`);
+  return changed;
+}
+
 // ─── Main ───
 async function main() {
   console.log(`[intake] 채널 ${INTAKE_CHANNEL} · since ${SINCE}${DRY_RUN ? ' · DRY RUN' : ''}`);
   const state = loadState();
+
+  if (SYNC_ONLY) {
+    await syncStates(state);
+    saveState(state);
+    return;
+  }
 
   const hist = await slack.conversations.history({
     channel: INTAKE_CHANNEL,
@@ -458,7 +541,10 @@ async function main() {
     .sort((a, b) => Number(a.ts) - Number(b.ts));
 
   console.log(`[intake] 대상 ${targets.length}건`);
-  if (!targets.length) return;
+  if (!targets.length) {
+    if (!DRY_RUN && !INTAKE_ONLY) { await syncStates(state); saveState(state); }
+    return;
+  }
 
   let created = 0;
   for (const m of targets) {
@@ -483,7 +569,7 @@ async function main() {
     if (DRY_RUN) continue;
 
     const data = await linear(
-      `mutation($i:IssueCreateInput!){ issueCreate(input:$i){ success issue{ identifier url } } }`,
+      `mutation($i:IssueCreateInput!){ issueCreate(input:$i){ success issue{ id identifier url } } }`,
       {
         i: {
           teamId: OPS_TEAM_ID,
@@ -518,11 +604,20 @@ async function main() {
       unfurl_links: false,
     });
 
-    state.processed[m.ts] = { identifier: iss.identifier, at: new Date().toISOString() };
+    state.processed[m.ts] = {
+      identifier: iss.identifier,
+      issueId: iss.id,
+      at: new Date().toISOString(),
+      started: false,
+      done: false,
+    };
     created++;
   }
 
-  if (!DRY_RUN) saveState(state);
+  if (!DRY_RUN) {
+    if (!INTAKE_ONLY) await syncStates(state);
+    saveState(state);
+  }
   console.log(`\n[intake] 완료 — 생성 ${created}건`);
 }
 
