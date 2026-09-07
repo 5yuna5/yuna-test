@@ -48,12 +48,14 @@ const LABELS = {
   '서비스/카드': '0b751f15-cfba-41d7-906f-8f8beabb6a8e',
   '서비스/성장금융': '7ff881f5-6979-4049-b6ac-033a2b791872',
   '서비스/지출관리': '9a0e25c0-fe73-4914-a2a5-0614a09fc868',
+  '서비스/고객문의': '4ff058b5-aad7-4847-b5b9-4e6a2ad1d41f',
 };
 
 // 서비스 구분 → 라벨. 폼 선택지 문구가 바뀌어도 견디도록 패턴 매칭.
 const SERVICE = [
   [/성장 ?금융|대출|여신실행/, '성장금융'],
   [/지출 ?관리|경비|영수증|ERP/, '지출관리'],
+  [/고객 ?문의|CS|VOC/, '고객문의'],
   [/카드/, '카드'],
 ];
 
@@ -63,10 +65,15 @@ const SERVICE = [
 // started = Linear 담당자 배정됨 / done = Done / canceled = Canceled
 const REACTIONS = { started: 'arrow_forward', done: 'white_check_mark', canceled: 'no_entry_sign' };
 
+// slack = 접수 시 멘션할 사람들(복수 가능).
+// linear = 대표 담당자 ID. ⚠️ 접수 시점에 자동 배정하지 않는다.
+//   Linear 담당자 배정이 곧 '시작(▶️)' 신호이므로, 자동 배정하면 신호가 죽는다.
+//   이 값은 향후 '미배정 에스컬레이션'(SLA 내 아무도 안 집으면 호출)에 쓴다.
 const OWNERS = {
-  '카드':     { slack: null, linear: null },
-  '성장금융': { slack: null, linear: null },
-  '지출관리': { slack: null, linear: null },
+  '카드':     { slack: ['U0APKTBLYFK', 'U0831PJ9KE0'], linear: '4928ceba-7d54-4fc6-bb41-fa383f39f3b8' }, // 김소은·김민지
+  '성장금융': { slack: ['U08BHAKLGP3'], linear: '3da92996-a29d-477e-894c-0338051be77f' },                // 황민영
+  '지출관리': { slack: ['U0B5MLD4SA0'], linear: 'ae37bf75-25f8-4592-9c60-477bb52a489f' },                // 장혜원
+  '고객문의': { slack: ['U0B5MLD4SA0'], linear: 'ae37bf75-25f8-4592-9c60-477bb52a489f' },                // 장혜원
 };
 
 // 요청유형 → 제목 축약형
@@ -150,6 +157,12 @@ function replyDeadline(impact) {
   const d = new Date(ymd + 'T00:00:00Z');
   return `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}(${DOW[d.getUTCDay()]}) 18:00까지`;
 }
+/** OWNERS.slack(문자열 또는 배열) → '<@U1> <@U2>' 멘션 문자열. 없으면 null */
+function ownerMentions(owner) {
+  const ids = [].concat(owner?.slack || []).filter(Boolean);
+  return ids.length ? ids.map((i) => `<@${i}>`).join(' ') : null;
+}
+
 /** Slack user id → 실명 (Linear 설명문용). 실패 시 원본 유지 */
 const _userCache = {};
 async function resolveUser(v) {
@@ -268,25 +281,24 @@ function parseRequest(text) {
   const clean = (text || '').replace(/\*/g, '');
   const out = { kv: {}, sec: {} };
   let cur = null;
-
+  let buf = [];
   const push = (k, v) => {
     if (!k) return;
     const t = v.join('\n').trim();
-    if (t) out.kv[k] = t;
+    if (t) out.kv[k] = (out.kv[k] ? out.kv[k] + '\n' : '') + t;
   };
-  let buf = [];
 
   for (const raw of clean.split('\n')) {
     const line = raw.trim();
 
-    // (a) '━ 섹션명 ━' 구분자
-    const sec = /^[━─=-]{1,3}\s*(.+?)\s*[━─=-]{1,3}$/.exec(line);
-    if (sec) {
+    // (a) 섹션 구분자 — '— 요청내용 —', '━ 요청내용 ━', '--- 요청내용 ---'
+    const sec = /^[—–━─=_-]{1,4}\s*(.+?)\s*[—–━─=_-]{1,4}$/.exec(line);
+    if (sec && normLabel(sec[1])) {
       push(cur, buf); buf = [];
       cur = normLabel(sec[1]);
       continue;
     }
-    // (b) '키 :: 값' 인라인
+    // (b) '키 :: 값'
     const kv = /^(.{1,24}?)\s*::\s*(.*)$/.exec(line);
     if (kv && normLabel(kv[1])) {
       push(cur, buf); buf = [];
@@ -294,11 +306,13 @@ function parseRequest(text) {
       buf = [kv[2]];
       continue;
     }
-    // (c) 라벨만 단독으로 있는 줄 (Workflow Builder 기본 스타일)
-    const lab = normLabel(line);
-    if (lab && line.length <= 30) {
+    // (c) '라벨 값' 같은 줄 — 가장 긴 라벨 프리픽스를 찾는다.
+    //     예) '요청 유형 제휴사 확인·요청(...)' → 라벨 '요청 유형' / 값 나머지
+    const hit = matchLabelPrefix(line);
+    if (hit) {
       push(cur, buf); buf = [];
-      cur = lab;
+      cur = hit.label;
+      buf = hit.rest ? [hit.rest] : [];
       continue;
     }
     // (d) 그 외는 현재 필드의 값
@@ -306,9 +320,24 @@ function parseRequest(text) {
   }
   push(cur, buf);
 
-  // 하위호환: 다중행 필드를 sec으로도 노출
   for (const k of ['요청내용', '완료기준', '참고']) if (out.kv[k]) out.sec[k] = out.kv[k];
   return out;
+}
+
+/**
+ * 줄 앞부분에서 가장 긴 라벨을 찾는다.
+ * 라벨이 '요청 유형'처럼 공백을 품을 수 있어 어절을 하나씩 늘려가며 확인한다.
+ * 라벨만 있고 값이 없으면 rest = '' (다음 줄들이 값이 된다).
+ */
+function matchLabelPrefix(line) {
+  if (!line) return null;
+  const parts = line.split(/\s+/);
+  let best = null;
+  for (let i = 1; i <= Math.min(parts.length, 5); i++) {
+    const label = normLabel(parts.slice(0, i).join(' '));
+    if (label) best = { label, rest: parts.slice(i).join(' ').trim() };
+  }
+  return best;
 }
 
 /** 라벨 문구를 표준 필드명으로. 못 알아보면 null (= 값 줄로 취급) */
@@ -317,13 +346,13 @@ function normLabel(v) {
   if (!t) return null;
   const T = [
     [/^(법인명?|법인명또는사업자번호|사업자번호|법인식별자)$/, '법인'],
-    [/^(서비스|서비스구분|어떤서비스건인가요)$/, '서비스'],
+    [/^(서비스|서비스구분|어떤서비스건인가요|서비스명)$/, '서비스'],
     [/^(요청유형|무엇을해드릴까요)$/, '요청유형'],
     [/^(업무영역|어떤건인가요)$/, '업무영역'],
     [/^(제휴사|관련제휴사)$/, '제휴사'],
     [/^(고객영향|고객영향도)$/, '고객영향'],
     [/^(요청자|신청자)$/, '요청자'],
-    [/^(요청내용|상세요청사항|상세요청사항을입력해주세요|상세내용|내용)$/, '요청내용'],
+    [/^(요청내용|상세요청사항|상세요청사항을입력해주세요|상세내용|내용|요청사항)$/, '요청내용'],
     [/^(완료기준|원하는결과|무엇이되면끝인가요)$/, '완료기준'],
     [/^(참고|참고링크|참고자료|참고링크자료)$/, '참고'],
   ];
@@ -429,7 +458,6 @@ function buildIssue(p, corp, permalink, requester) {
     priority: impact.priority,
     dueDate: addBizDays(todayKst(), impact.dueBiz),
     labelIds,
-    assigneeId: owner.linear || undefined,
     _meta: { typeShort, waitLabel, service, owner, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
   };
 }
@@ -593,8 +621,8 @@ async function main() {
       `*분류*　　　${issue._meta.service ? issue._meta.service + ' · ' : ''}${issue._meta.typeShort} · ${corp.segment} · ${issue._meta.partner}`,
       `*법인*　　　${corp.corpName}${corp.brn ? ` (${fmtBrn(corp.brn)})` : ''}`,
       `*최초 회신 목표*　*${issue._meta.deadline}*`,
-      ...(issue._meta.owner?.slack
-        ? ['', `담당 <@${issue._meta.owner.slack}> 님이 확인합니다.`]
+      ...(ownerMentions(issue._meta.owner)
+        ? ['', `담당 ${ownerMentions(issue._meta.owner)} 님이 확인합니다.`]
         : ['', '담당자가 지정되면 이 스레드로 안내드립니다.']),
     ].join('\n');
     await slack.chat.postMessage({
