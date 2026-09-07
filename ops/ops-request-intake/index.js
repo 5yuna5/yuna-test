@@ -37,6 +37,10 @@ const INTAKE_CHANNEL = process.env.OPS_INTAKE_CHANNEL || 'C068EG4N7QA';
 const OPS_TEAM_ID = 'ba7b57b7-3f9e-4f81-b7f4-7e24ed38c074';
 const BACKLOG_STATE_ID = '0baa5dc0-c2b4-4544-8ecf-e58f182a4156';
 const MARKER = '운영 업무 요청';
+// 메시지에 노출될 봇 표시 이름. chat:write.customize 스코프로 앱 기본 이름을 덮어쓴다.
+// (bizops-due-alert가 'BizOps 마감 알림'을 쓰는 것과 같은 방식)
+const BOT_USERNAME = '서비스전략';
+const BOT_ICON = ':inbox_tray:';
 const STATE_FILE = path.join(__dirname, 'state', 'processed.json');
 const BQ_KEY = path.join(os.homedir(), '.claude/credentials/gowid-prd-bigquery-key.json');
 
@@ -521,6 +525,7 @@ async function syncStates(state) {
       if (!ok) {
         await slack.chat.postMessage({
           channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
+          username: BOT_USERNAME, icon_emoji: BOT_ICON,
           text: `▶️ *${iss.assignee.name}* 님이 확인을 시작했습니다. (<${iss.url}|${iss.identifier}>)`,
         });
       }
@@ -534,6 +539,7 @@ async function syncStates(state) {
       if (!ok) {
         await slack.chat.postMessage({
           channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
+          username: BOT_USERNAME, icon_emoji: BOT_ICON,
           text: type === 'completed'
             ? `✅ 처리 완료되었습니다. (<${iss.url}|${iss.identifier}>)`
             : `🚫 이 요청은 종료되었습니다. 사유는 <${iss.url}|${iss.identifier}>에 있습니다.`,
@@ -644,6 +650,8 @@ async function main() {
       thread_ts: m.ts,
       text: receipt,
       unfurl_links: false,
+      username: BOT_USERNAME,
+      icon_emoji: BOT_ICON,
     });
 
     state.processed[m.ts] = {
