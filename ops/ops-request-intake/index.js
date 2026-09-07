@@ -41,7 +41,9 @@ const MARKER = '운영 업무 요청';
 // (bizops-due-alert가 'BizOps 마감 알림'을 쓰는 것과 같은 방식)
 const BOT_USERNAME = '서비스전략';
 const BOT_ICON = ':inbox_tray:';
-const STATE_FILE = path.join(__dirname, 'state', 'processed.json');
+// ⚠️ state는 채널과 무관하게 ts로만 키를 잡는다.
+//    다른 채널로 테스트할 때는 OPS_STATE_FILE로 분리해야 실채널 기록이 오염되지 않는다.
+const STATE_FILE = process.env.OPS_STATE_FILE || path.join(__dirname, 'state', 'processed.json');
 const BQ_KEY = path.join(os.homedir(), '.claude/credentials/gowid-prd-bigquery-key.json');
 
 const LABELS = {
@@ -83,6 +85,7 @@ const OWNERS = {
 // 요청유형 → 제목 축약형
 const TYPE_SHORT = [
   [/제휴사|카드사/, '제휴사 확인'],
+  [/정책.*(업데이트|신설|변경|개정)/, '정책 업데이트'],
   [/정책|가능여부/, '정책 확인'],
   [/진행상황|진척/, '진행상황 확인'],
   [/처리|작업/, '처리 요청'],
@@ -106,6 +109,9 @@ const argVal = (flag, dflt) => {
   const i = args.indexOf(flag);
   return i >= 0 && args[i + 1] ? args[i + 1] : dflt;
 };
+// --seed: 지금 채널에 있는 요청들을 '처리완료'로만 표시하고 이슈는 만들지 않는다.
+// 가동 시작 시 과거 요청이 소급 생성되는 것을 막는 용도.
+const SEED = args.includes('--seed');
 const SYNC_ONLY = args.includes('--sync-only');
 const INTAKE_ONLY = args.includes('--intake-only');
 const LIMIT = Number(argVal('--limit', '200'));
@@ -564,11 +570,10 @@ async function main() {
     return;
   }
 
-  const hist = await slack.conversations.history({
-    channel: INTAKE_CHANNEL,
-    oldest: sinceToTs(SINCE),
-    limit: LIMIT,
-  });
+  // ⚠️ oldest를 넓게 주면 Slack이 그 구간의 '가장 오래된' N건을 돌려줘 최신 메시지가 누락된다.
+  //    (--since 30d에서 실제로 0건이 나왔다) → oldest 없이 최신 N건을 받고 클라이언트에서 자른다.
+  const cutoff = Number(sinceToTs(SINCE));
+  const hist = await slack.conversations.history({ channel: INTAKE_CHANNEL, limit: LIMIT });
   // 판별 3중화. Workflow Builder 메시지는 본문에 워크플로 이름이 없을 수 있고,
   // username/bot_profile도 앱 설정에 따라 비어 온다. 그래서 구조 판별을 최후 보루로 둔다.
   const isBot = (m) => Boolean(m.bot_id) || m.subtype === 'bot_message' || Boolean(m.app_id);
@@ -584,9 +589,19 @@ async function main() {
     return Boolean(k['요청유형'] && k['서비스'] && k['법인']);
   };
   const targets = (hist.messages || [])
+    .filter((m) => Number(m.ts) >= cutoff)
     .filter(isTarget)
     .filter((m) => !state.processed[m.ts])
     .sort((a, b) => Number(a.ts) - Number(b.ts));
+
+  if (SEED) {
+    for (const m of targets) {
+      state.processed[m.ts] = { channel: INTAKE_CHANNEL, identifier: null, issueId: null, at: new Date().toISOString(), done: true, note: 'seeded' };
+    }
+    saveState(state);
+    console.log(`[seed] ${targets.length}건을 처리완료로 표시 (이슈 생성 없음). 이후 신규 요청만 접수됩니다.`);
+    return;
+  }
 
   console.log(`[intake] 대상 ${targets.length}건`);
   if (!targets.length) {
@@ -655,6 +670,7 @@ async function main() {
     });
 
     state.processed[m.ts] = {
+      channel: INTAKE_CHANNEL,
       identifier: iss.identifier,
       issueId: iss.id,
       at: new Date().toISOString(),

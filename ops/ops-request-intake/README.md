@@ -165,12 +165,37 @@ OPS_INTAKE_CHANNEL=C019ZSK6NNR node index.js   # 채널 override (테스트)
 
 Linear에서 이슈가 삭제되면 다음 동기화 때 자동으로 추적 해제된다. 그렇게 하지 않으면 영구히 조회 대상으로 남는다.
 
+## 가동 (launchd)
+
+```bash
+launchctl load   ~/Library/LaunchAgents/com.gowid.ops-request-intake.plist   # 시작
+launchctl unload ~/Library/LaunchAgents/com.gowid.ops-request-intake.plist   # 중지
+launchctl list | grep ops-request-intake                                     # 상태
+tail -f ~/.claude/logs/ops-request-intake.log                                # 로그
+```
+
+5분 간격(`StartInterval 300`). 매 사이클마다 **접수 → 상태 동기화** 순으로 돈다.
+
+### 처음 켤 때는 반드시 `--seed`
+
+```bash
+node index.js --seed --since 30d
+```
+
+채널에 이미 올라와 있는 요청들을 **이슈 생성 없이 처리완료로만 표시**한다.
+이걸 건너뛰면 과거 요청이 전부 소급 생성된다.
+
 ## ⚠️ 주의
 
 - **yuna-test cron이 매시간 `git reset --hard origin/main`을 실행한다.**
   이 디렉터리 변경은 반드시 origin에 push해야 살아남는다. `node_modules`·`state/`는 untracked라 생존.
 - `dw_fact.card_issuance`는 stale하다. 발급 판정은 반드시 ODS `CardIssuanceInfo`를 쓴다.
 - `Corp.resCompanyNumber`는 **전화번호**다. 사업자번호는 `resCompanyIdentityNo`.
+- **`conversations.history`에 `oldest`를 넓게 주면 안 된다.** 그 구간의 *가장 오래된* N건이 돌아와
+  최신 메시지가 통째로 누락된다(`--since 30d`에서 실제로 0건이 나왔다).
+  oldest 없이 최신 N건을 받아 클라이언트에서 자른다.
+- **state는 채널이 아니라 ts로만 키를 잡는다.** 다른 채널로 테스트할 때는
+  `OPS_STATE_FILE=/tmp/test-state.json`으로 분리할 것. 안 하면 실채널 기록이 섞인다.
 
 ## launchd 등록 (5분 간격)
 
