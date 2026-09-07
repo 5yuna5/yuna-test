@@ -61,10 +61,10 @@ const TYPE_SHORT = [
 
 // 고객영향 → priority / 영업일 기한 / 최초회신 목표
 const IMPACT = [
-  [/못 ?쓰|사용.*막|막혀/, { priority: 1, dueBiz: 0, sla: '30분' }],
-  [/기다리|답변.*대기|회신해/, { priority: 2, dueBiz: 1, sla: '2시간' }],
-  [/아직 안 ?알림|내부에서 먼저/, { priority: 3, dueBiz: 2, sla: '당일' }],
-  [/고객 ?건 ?아님|내부 ?업무/, { priority: 4, dueBiz: 5, sla: '2영업일' }],
+  [/못 ?쓰|사용.*막|막혀/, { priority: 1, dueBiz: 0, sla: '30분', mins: 30 }],
+  [/기다리|답변.*대기|회신해/, { priority: 2, dueBiz: 1, sla: '2시간', mins: 120 }],
+  [/아직 안 ?알림|내부에서 먼저/, { priority: 3, dueBiz: 2, sla: '당일', eodBiz: 0 }],
+  [/고객 ?건 ?아님|내부 ?업무/, { priority: 4, dueBiz: 5, sla: '2영업일', eodBiz: 2 }],
 ];
 
 const args = process.argv.slice(2);
@@ -98,6 +98,56 @@ function addBizDays(ymd, n) {
 /** 사업자번호 10자리 → 000-00-00000 */
 function fmtBrn(d) {
   return d && d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}` : d;
+}
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+/** KST 기준 'YYYY-MM-DD HH:MM' 파츠 */
+function kstParts(d) {
+  const f = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false,
+  }).formatToParts(d);
+  const g = (t) => f.find((x) => x.type === t)?.value;
+  return { ymd: `${g('year')}-${g('month')}-${g('day')}`, hm: `${g('hour')}:${g('minute')}` };
+}
+/**
+ * 최초 회신 목표 시각을 사람이 읽는 문장으로.
+ *   분 단위(30분/2시간) → '오늘 15:20까지'
+ *   영업일 단위(당일/2영업일) → '오늘 18:00까지' / '9/9(수) 18:00까지'
+ */
+function replyDeadline(impact) {
+  const today = todayKst();
+  if (impact.mins != null) {
+    const t = kstParts(new Date(Date.now() + impact.mins * 60000));
+    const day = t.ymd === today ? '오늘' : `${Number(t.ymd.slice(5, 7))}/${Number(t.ymd.slice(8, 10))}`;
+    return `${day} ${t.hm}까지`;
+  }
+  const ymd = addBizDays(today, impact.eodBiz ?? 0);
+  if (ymd === today) return '오늘 18:00까지';
+  const d = new Date(ymd + 'T00:00:00Z');
+  return `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}(${DOW[d.getUTCDay()]}) 18:00까지`;
+}
+/** Slack user id → 실명 (Linear 설명문용). 실패 시 원본 유지 */
+const _userCache = {};
+async function resolveUser(v) {
+  const raw = (v || '').trim();
+  const m = /<@([A-Z0-9]+)(\|([^>]*))?>/.exec(raw);
+  if (!m) return raw || '-';
+  if (m[3]) return m[3];
+  const id = m[1];
+  if (_userCache[id]) return _userCache[id];
+  try {
+    const r = await slack.users.info({ user: id });
+    const p = r.user?.profile || {};
+    _userCache[id] = p.real_name || r.user?.name || id;
+  } catch {
+    _userCache[id] = id;
+  }
+  return _userCache[id];
+}
+/** '<@U123|이름>' 또는 '<@U123>' 에서 멘션 토큰만 추출. 없으면 null */
+function mentionOf(v) {
+  const m = /<@([A-Z0-9]+)(\|[^>]*)?>/.exec(v || '');
+  return m ? `<@${m[1]}>` : null;
 }
 function sinceToTs(s) {
   const m = /^(\d+)([dh])$/.exec(s);
@@ -287,7 +337,7 @@ function buildIssue(p, corp, permalink, requester) {
     `**요청유형** ${p.kv['요청유형'] || '-'}`,
     `**업무영역** ${p.kv['업무영역'] || '-'}`,
     `**제휴사** ${partner}`,
-    `**고객 영향** ${p.kv['고객영향'] || '-'} · 최초 회신 목표 **${impact.sla}**`,
+    `**고객 영향** ${p.kv['고객영향'] || '-'} · 최초 회신 목표 **${replyDeadline(impact)}** (${impact.sla})`,
     '',
     '### 요청 내용',
     p.sec['요청내용'] || '-',
@@ -307,7 +357,7 @@ function buildIssue(p, corp, permalink, requester) {
     priority: impact.priority,
     dueDate: addBizDays(todayKst(), impact.dueBiz),
     labelIds: [LABELS[waitLabel]].filter(Boolean),
-    _meta: { typeShort, waitLabel, sla: impact.sla },
+    _meta: { typeShort, waitLabel, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
   };
 }
 
@@ -343,7 +393,8 @@ async function main() {
       if (pl.permalink) permalink = pl.permalink;
     } catch {}
 
-    const issue = buildIssue(p, corp, permalink, p.kv['요청자']);
+    const requesterName = await resolveUser(p.kv['요청자']);
+    const issue = buildIssue(p, corp, permalink, requesterName);
     console.log(`\n  ── ${m.ts}`);
     console.log(`  제목: ${issue.title}`);
     console.log(`  P${issue.priority} · 기한 ${issue.dueDate} · ${issue._meta.waitLabel} · 최초회신 ${issue._meta.sla}`);
@@ -367,10 +418,21 @@ async function main() {
     const iss = data.issueCreate.issue;
     console.log(`  ✅ ${iss.identifier} ${iss.url}`);
 
+    const who = mentionOf(p.kv['요청자']);
+    const receipt = [
+      `${who ? who + ' ' : ''}✅ *요청이 접수되었습니다*`,
+      '',
+      `*접수번호*　<${iss.url}|${iss.identifier}>`,
+      `*분류*　　　${issue._meta.typeShort} · ${corp.segment} · ${issue._meta.partner}`,
+      `*법인*　　　${corp.corpName}${corp.brn ? ` (${fmtBrn(corp.brn)})` : ''}`,
+      `*최초 회신 목표*　*${issue._meta.deadline}*`,
+      '',
+      '담당자가 지정되면 이 스레드로 안내드립니다.',
+    ].join('\n');
     await slack.chat.postMessage({
       channel: INTAKE_CHANNEL,
       thread_ts: m.ts,
-      text: `✅ 접수 완료 · <${iss.url}|${iss.identifier}>\n담당자 지정 전이며, *최초 회신 목표는 ${issue._meta.sla}* 입니다.`,
+      text: receipt,
       unfurl_links: false,
     });
 
