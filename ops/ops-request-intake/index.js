@@ -36,7 +36,7 @@ const { BigQuery } = require('@google-cloud/bigquery');
 const INTAKE_CHANNEL = process.env.OPS_INTAKE_CHANNEL || 'C068EG4N7QA';
 const OPS_TEAM_ID = 'ba7b57b7-3f9e-4f81-b7f4-7e24ed38c074';
 const BACKLOG_STATE_ID = '0baa5dc0-c2b4-4544-8ecf-e58f182a4156';
-const MARKER = '신규 운영 요청';
+const MARKER = '운영 업무 요청';
 const STATE_FILE = path.join(__dirname, 'state', 'processed.json');
 const BQ_KEY = path.join(os.homedir(), '.claude/credentials/gowid-prd-bigquery-key.json');
 
@@ -226,7 +226,7 @@ function linear(query, variables = {}) {
 // ─── 파서 ───
 /**
  * Workflow 메시지 포맷:
- *   📥 신규 운영 요청
+ *   📥 운영 업무 요청
  *   요청자 :: ...
  *   요청유형 :: ...
  *   업무영역 :: ...
