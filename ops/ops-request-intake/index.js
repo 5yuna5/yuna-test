@@ -71,15 +71,15 @@ const SERVICE = [
 // started = Linear 담당자 배정됨 / done = Done / canceled = Canceled
 const REACTIONS = { started: 'arrow_forward', done: 'white_check_mark', canceled: 'no_entry_sign' };
 
-// slack = 접수 시 멘션할 사람들(복수 가능).
-// linear = 대표 담당자 ID. ⚠️ 접수 시점에 자동 배정하지 않는다.
-//   Linear 담당자 배정이 곧 '시작(▶️)' 신호이므로, 자동 배정하면 신호가 죽는다.
-//   이 값은 향후 '미배정 에스컬레이션'(SLA 내 아무도 안 집으면 호출)에 쓴다.
+// slack   = 접수 시 멘션할 사람들
+// linear  = [대표 담당자, ...공동 담당자]. 첫 번째가 assignee, 전원이 구독자로 들어간다.
+//           (Linear는 assignee를 1명만 허용하므로 공동 담당은 구독자로 붙인다)
 const OWNERS = {
-  '카드':     { slack: ['U0APKTBLYFK', 'U0831PJ9KE0'], linear: '4928ceba-7d54-4fc6-bb41-fa383f39f3b8' }, // 김소은·김민지
-  '성장금융': { slack: ['U08BHAKLGP3'], linear: '3da92996-a29d-477e-894c-0338051be77f' },                // 황민영
-  '지출관리': { slack: ['U0B5MLD4SA0'], linear: 'ae37bf75-25f8-4592-9c60-477bb52a489f' },                // 장혜원
-  '고객문의': { slack: ['U0B5MLD4SA0'], linear: 'ae37bf75-25f8-4592-9c60-477bb52a489f' },                // 장혜원
+  '카드':     { slack: ['U0APKTBLYFK', 'U0831PJ9KE0'],                                    // 김소은·김민지
+                linear: ['4928ceba-7d54-4fc6-bb41-fa383f39f3b8', '24b118ee-db73-44f2-b8ad-3659ddb9f453'] },
+  '성장금융': { slack: ['U08BHAKLGP3'], linear: ['3da92996-a29d-477e-894c-0338051be77f'] }, // 황민영
+  '지출관리': { slack: ['U0B5MLD4SA0'], linear: ['ae37bf75-25f8-4592-9c60-477bb52a489f'] }, // 장혜원
+  '고객문의': { slack: ['U0B5MLD4SA0'], linear: ['ae37bf75-25f8-4592-9c60-477bb52a489f'] }, // 장혜원
 };
 
 // 요청유형 → 제목 축약형
@@ -474,6 +474,7 @@ function buildIssue(p, corp, permalink, requester) {
 
   const service = pick(SERVICE, p.kv['서비스'], null);
   const owner = (service && OWNERS[service]) || {};
+  const linearIds = [].concat(owner.linear || []).filter(Boolean);
   const title = `[업무요청] ${typeShort}_${segment}_${partner}_${subject}`;
 
   const waitLabel =
@@ -510,6 +511,8 @@ function buildIssue(p, corp, permalink, requester) {
     priority: impact.priority,
     dueDate: addBizDays(todayKst(), impact.dueBiz),
     labelIds,
+    assigneeId: linearIds[0],
+    subscriberIds: linearIds.length > 1 ? linearIds : undefined,
     _meta: { typeShort, waitLabel, service, owner, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
   };
 }
@@ -560,17 +563,19 @@ async function syncStates(state) {
     }
     const type = iss.state?.type;
 
-    if (!rec.started && iss.assignee) {
+    // 시작 = 상태가 진행 중(In Progress / In Review)으로 넘어간 시점.
+    // 담당자는 접수 시 자동 배정되므로 배정 여부로는 시작을 알 수 없다.
+    if (!rec.started && type === 'started') {
       const ok = await react(ts, REACTIONS.started);
       if (!ok) {
         await slack.chat.postMessage({
           channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
           username: BOT_USERNAME, icon_emoji: BOT_ICON,
-          text: `▶️ *${iss.assignee.name}* 님이 확인을 시작했습니다. (<${iss.url}|${iss.identifier}>)`,
+          text: `▶️ *${iss.assignee?.name || '담당자'}* 님이 처리를 시작했습니다. (<${iss.url}|${iss.identifier}>)`,
         });
       }
       rec.started = true; changed++;
-      console.log(`  ▶️ ${iss.identifier} 시작 — ${iss.assignee.name}`);
+      console.log(`  ▶️ ${iss.identifier} 시작 — ${iss.assignee?.name || '미배정'}`);
     }
 
     if (type === 'completed' || type === 'canceled') {
@@ -677,6 +682,8 @@ async function main() {
           priority: issue.priority,
           dueDate: issue.dueDate,
           labelIds: issue.labelIds,
+          assigneeId: issue.assigneeId,
+          subscriberIds: issue.subscriberIds,
         },
       }
     );
