@@ -612,13 +612,14 @@ async function main() {
   // username/bot_profile도 앱 설정에 따라 비어 온다. 그래서 구조 판별을 최후 보루로 둔다.
   const isBot = (m) => Boolean(m.bot_id) || m.subtype === 'bot_message' || Boolean(m.app_id);
   const isTarget = (m) => {
+    // Workflow는 항상 봇으로 게시된다. 사람 글은 어떤 경우에도 후보가 아니다.
+    // (공지문에 '운영 업무 요청'이 들어가는 것만으로 잡히던 오탐을 막는다)
+    if (!isBot(m)) return false;
     const byMarker =
       (m.text || '').includes(MARKER) ||
       (m.username || '').includes(MARKER) ||
       (m.bot_profile?.name || '').includes(MARKER);
     if (byMarker) return true;
-    // 봇이 보낸 메시지이면서 필수 필드가 모두 파싱되면 요청으로 본다.
-    if (!isBot(m)) return false;
     const k = parseRequest(m.text).kv;
     return Boolean(k['요청유형'] && k['서비스'] && k['법인']);
   };
