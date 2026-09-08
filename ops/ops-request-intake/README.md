@@ -212,6 +212,12 @@ node index.js --seed --since 30d
   이 디렉터리 변경은 반드시 origin에 push해야 살아남는다. `node_modules`·`state/`는 untracked라 생존.
 - `dw_fact.card_issuance`는 stale하다. 발급 판정은 반드시 ODS `CardIssuanceInfo`를 쓴다.
 - `Corp.resCompanyNumber`는 **전화번호**다. 사업자번호는 `resCompanyIdentityNo`.
+- **법인명 정규화에 정규식 문자클래스를 쓰지 않는다.** `r"[\s주식회사㈜]"`는 '주'·'사' 같은
+  낱글자를 아무 데서나 지워 `주식회사 사조` → `조` 로 망가진다. 게다가 JS→SQL 이스케이프가
+  한 겹 더 끼면 `\s`가 리터럴 백슬래시로 해석돼 **공백이 안 지워진다**
+  (실제로 `스낵스`는 미확인, `주식회사 스낵스`만 매칭되는 버그가 있었다).
+  → 토큰 단위 `REPLACE` 체인만 쓴다.
+- **폼 항목이 복수 선택이면 `A, B` 로 들어온다.** 제목에 쓸 값은 첫 값만 자른다.
 - **`conversations.history`에 `oldest`를 넓게 주면 안 된다.** 그 구간의 *가장 오래된* N건이 돌아와
   최신 메시지가 통째로 누락된다(`--since 30d`에서 실제로 0건이 나왔다).
   oldest 없이 최신 N건을 받아 클라이언트에서 자른다.

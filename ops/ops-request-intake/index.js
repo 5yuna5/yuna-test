@@ -407,14 +407,19 @@ async function lookupCorp(input) {
   }
   const digits = raw.replace(/[^0-9]/g, '');
   const byBrn = digits.length === 10;
+  // 법인명 정규화: 정규식 이스케이프 함정을 피해 명시적 치환만 쓴다.
+  // (r"[\s주식회사...]" 문자클래스는 '주'·'사' 같은 낱글자를 아무 데서나 지워
+  //  '주식회사 사조' → '조' 처럼 망가진다. 토큰 단위 REPLACE가 정확하다.)
+  const NORM = (col) =>
+    `UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${col},'주식회사',''),'(주)',''),'㈜',''),'(유)',''),' ',''))`;
   const sql = `
     WITH corp AS (
       SELECT c.idx, c.resCompanyNm AS corp_name,
              REPLACE(c.resCompanyIdentityNo,'-','') AS brn
       FROM \`gowid-prd.ods_stream_gowid.Corp\` c
       WHERE ${byBrn
-        ? 'REPLACE(c.resCompanyIdentityNo,"-","") = @q'
-        : 'REGEXP_REPLACE(c.resCompanyNm, r"[\\\\s()주식회사㈜\\\\(\\\\)]", "") = REGEXP_REPLACE(@q, r"[\\\\s()주식회사㈜\\\\(\\\\)]", "")'}
+        ? "REPLACE(c.resCompanyIdentityNo,'-','') = @q"
+        : `${NORM('c.resCompanyNm')} = ${NORM('@q')}`}
     ),
     iss AS (
       SELECT ci.idxCorp,
@@ -459,7 +464,10 @@ function buildIssue(p, corp, permalink, requester) {
 
   // 제목 넷째 칸: 조회된 법인명 → 없으면 업무영역 → 없으면 해당없음.
   // 조회 실패(미확인)한 입력값은 식별자로 못 쓰므로 제목에 넣지 않고 본문에만 남긴다.
-  const domain = (p.kv['업무영역'] || '').trim();
+  // 업무영역·요청유형은 복수 선택이 가능해 'A, B' 로 들어온다.
+  // 제목에 쓸 때는 첫 값만 (제목이 길어지면 보드에서 읽히지 않는다)
+  const firstOf = (v) => (v || '').split(/[,،·]?\s*,\s*/)[0].trim();
+  const domain = firstOf(p.kv['업무영역']);
   const resolved = corp.segment === '기존' || corp.segment === '신규';
   const subject = resolved ? corp.corpName : domain || '해당없음';
   const segment = resolved ? corp.segment : '해당없음';
