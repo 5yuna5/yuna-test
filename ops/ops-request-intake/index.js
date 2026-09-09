@@ -71,16 +71,40 @@ const SERVICE = [
 // started = Linear 담당자 배정됨 / done = Done / canceled = Canceled
 const REACTIONS = { started: 'arrow_forward', done: 'white_check_mark', canceled: 'no_entry_sign' };
 
-// slack   = 접수 시 멘션할 사람들
-// linear  = [대표 담당자, ...공동 담당자]. 첫 번째가 assignee, 전원이 구독자로 들어간다.
-//           (Linear는 assignee를 1명만 허용하므로 공동 담당은 구독자로 붙인다)
-const OWNERS = {
-  '카드':     { slack: ['U0APKTBLYFK', 'U0831PJ9KE0'],                                    // 김소은·김민지
-                linear: ['4928ceba-7d54-4fc6-bb41-fa383f39f3b8', '24b118ee-db73-44f2-b8ad-3659ddb9f453'] },
-  '성장금융': { slack: ['U08BHAKLGP3'], linear: ['3da92996-a29d-477e-894c-0338051be77f'] }, // 황민영
-  '지출관리': { slack: ['U0B5MLD4SA0'], linear: ['ae37bf75-25f8-4592-9c60-477bb52a489f'] }, // 장혜원
-  '고객문의': { slack: ['U0B5MLD4SA0'], linear: ['ae37bf75-25f8-4592-9c60-477bb52a489f'] }, // 장혜원
+// ─── 담당자 라우팅 ───
+// 사람 사전. slack = 멘션용, linear = 배정·구독용.
+const PEOPLE = {
+  김소은: { slack: 'U0APKTBLYFK', linear: '4928ceba-7d54-4fc6-bb41-fa383f39f3b8' },
+  김민지: { slack: 'U0831PJ9KE0', linear: '24b118ee-db73-44f2-b8ad-3659ddb9f453' },
+  장혜원: { slack: 'U0B5MLD4SA0', linear: 'ae37bf75-25f8-4592-9c60-477bb52a489f' },
+  황민영: { slack: 'U08BHAKLGP3', linear: '3da92996-a29d-477e-894c-0338051be77f' },
 };
+
+// 규칙은 위에서부터 평가해 처음 걸리는 하나가 이긴다. 순서가 곧 우선순위다.
+// ctx = { service, type(요청유형), domain(업무영역), partner(제휴사), text(요청내용) }
+const ROUTES = [
+  { name: '성장금융',        when: (c) => c.service === '성장금융',                    who: ['황민영'] },
+  { name: '고객문의',        when: (c) => c.service === '고객문의',                    who: ['장혜원'] },
+  { name: '지출관리',        when: (c) => c.service === '지출관리',                    who: ['장혜원'] },
+  { name: '가이드·CX',       when: (c) => /가이드|CX|고객 ?안내|응대/.test(`${c.type} ${c.domain}`), who: ['장혜원'] },
+  { name: '카드-비씨·신한',  when: (c) => c.service === '카드' && /비씨|BC|신한/i.test(c.partner), who: ['김소은'] },
+  { name: '카드-국민·롯데',  when: (c) => c.service === '카드' && /국민|KB|롯데/i.test(c.partner), who: ['김민지'] },
+  { name: '카드-제휴사불명', when: (c) => c.service === '카드',                        who: ['김소은', '김민지'] },
+];
+
+/** 라우팅 결과 → { names, slack[], linear[], rule } */
+function route(ctx) {
+  const hit = ROUTES.find((r) => r.when(ctx));
+  if (!hit) return { names: [], slack: [], linear: [], rule: null };
+  const people = hit.who.map((n) => PEOPLE[n]).filter(Boolean);
+  return {
+    names: hit.who,
+    slack: people.map((p) => p.slack).filter(Boolean),
+    linear: people.map((p) => p.linear).filter(Boolean),
+    rule: hit.name,
+  };
+}
+
 
 // 요청유형 → 제목 축약형
 const TYPE_SHORT = [
@@ -179,7 +203,7 @@ function replyDeadline(impact) {
   const d = new Date(ymd + 'T00:00:00Z');
   return `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}(${DOW[d.getUTCDay()]}) 18:00까지`;
 }
-/** OWNERS.slack(문자열 또는 배열) → '<@U1> <@U2>' 멘션 문자열. 없으면 null */
+/** slack id 배열 → '<@U1> <@U2>' 멘션 문자열. 없으면 null */
 function ownerMentions(owner) {
   const ids = [].concat(owner?.slack || []).filter(Boolean);
   return ids.length ? ids.map((i) => `<@${i}>`).join(' ') : null;
@@ -473,8 +497,14 @@ function buildIssue(p, corp, permalink, requester) {
   const segment = resolved ? corp.segment : '해당없음';
 
   const service = pick(SERVICE, p.kv['서비스'], null);
-  const owner = (service && OWNERS[service]) || {};
-  const linearIds = [].concat(owner.linear || []).filter(Boolean);
+  const owner = route({
+    service,
+    type: p.kv['요청유형'] || '',
+    domain: p.kv['업무영역'] || '',
+    partner,
+    text: p.kv['요청내용'] || '',
+  });
+  const linearIds = owner.linear;
   const title = `[업무요청] ${typeShort}_${segment}_${partner}_${subject}`;
 
   const waitLabel =
@@ -513,7 +543,7 @@ function buildIssue(p, corp, permalink, requester) {
     labelIds,
     assigneeId: linearIds[0],
     subscriberIds: linearIds.length > 1 ? linearIds : undefined,
-    _meta: { typeShort, waitLabel, service, owner, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
+    _meta: { typeShort, waitLabel, service, owner, routeRule: owner.rule, names: owner.names, sla: impact.sla, deadline: replyDeadline(impact), partner, corp },
   };
 }
 
@@ -668,6 +698,7 @@ async function main() {
     console.log(`\n  ── ${m.ts}`);
     console.log(`  제목: ${issue.title}`);
     console.log(`  P${issue.priority} · 기한 ${issue.dueDate} · ${issue._meta.waitLabel} · 최초회신 ${issue._meta.sla}`);
+    console.log(`  담당: ${(issue._meta.names || []).join(', ') || '미지정'}  [규칙: ${issue._meta.routeRule || '없음'}]`);
 
     if (DRY_RUN) continue;
 
