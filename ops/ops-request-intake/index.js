@@ -78,12 +78,17 @@ const PEOPLE = {
   김민지: { slack: 'U0831PJ9KE0', linear: '24b118ee-db73-44f2-b8ad-3659ddb9f453' },
   장혜원: { slack: 'U0B5MLD4SA0', linear: 'ae37bf75-25f8-4592-9c60-477bb52a489f' },
   황민영: { slack: 'U08BHAKLGP3', linear: '3da92996-a29d-477e-894c-0338051be77f' },
+  김민우: { slack: 'U0B3WJ2N71T', linear: 'a8364964-b756-4184-9786-2dbfa18f8a82' },
+  오유나: { slack: 'U09J53NDGV9', linear: '3c20eb70-9bf6-45fa-9fdf-b6d3ce2678a6' },
 };
 
 // 규칙은 위에서부터 평가해 처음 걸리는 하나가 이긴다. 순서가 곧 우선순위다.
-// ctx = { service, type(요청유형), domain(업무영역), partner(제휴사), text(요청내용) }
+// ctx = { service(정규화값), serviceRaw(폼 원문), type(요청유형), domain(업무영역), partner, text }
+//   serviceRaw를 함께 보는 이유: SERVICE 매핑에 없는 새 선택지(BD 아젠다 등)가
+//   서비스 칸에 들어와도 규칙이 잡아야 하기 때문
 const ROUTES = [
   { name: '성장금융',        when: (c) => c.service === '성장금융',                    who: ['황민영'] },
+  { name: 'BD 아젠다',       when: (c) => /BD ?아젠다|BD ?agenda/i.test(`${c.serviceRaw} ${c.type} ${c.domain}`), who: ['김민우', '오유나'] },
   { name: '고객문의',        when: (c) => c.service === '고객문의',                    who: ['장혜원'] },
   { name: '지출관리',        when: (c) => c.service === '지출관리',                    who: ['장혜원'] },
   { name: '가이드·CX',       when: (c) => /가이드|CX|고객 ?안내|응대/.test(`${c.type} ${c.domain}`), who: ['장혜원'] },
@@ -499,6 +504,7 @@ function buildIssue(p, corp, permalink, requester) {
   const service = pick(SERVICE, p.kv['서비스'], null);
   const owner = route({
     service,
+    serviceRaw: p.kv['서비스'] || '',
     type: p.kv['요청유형'] || '',
     domain: p.kv['업무영역'] || '',
     partner,
