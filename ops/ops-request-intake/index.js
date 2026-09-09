@@ -66,6 +66,9 @@ const SERVICE = [
 // 둘 중 하나만 채워도 동작한다. 비워두면 멘션·배정을 건너뛴다.
 // 진행 상태를 채널에서 한눈에 보이게 하는 이모지.
 // started = Linear 담당자 배정됨 / done = Done / canceled = Canceled
+// 이모지 리액션은 reactions:write 스코프가 필요해 현재 쓰지 않는다.
+// 스레드 코멘트가 기본 경로다. 스코프가 생기면 OPS_USE_REACTIONS=true 로 켠다.
+const USE_REACTIONS = process.env.OPS_USE_REACTIONS === 'true';
 const REACTIONS = { started: 'arrow_forward', done: 'white_check_mark', canceled: 'no_entry_sign' };
 
 // 스레드에 이미 보낸 알림인지 판별하는 문구. 상태 파일 없이 중복 발송을 막는 기준이다.
@@ -573,7 +576,7 @@ function buildIssue(p, corp, permalink, requester) {
 let _reactionScopeMissing = false;
 /** 리액션 추가. 이미 달려 있으면 성공으로 본다. 스코프가 없으면 false를 돌려주고 이후 호출을 건너뛴다. */
 async function react(ts, name) {
-  if (_reactionScopeMissing) return false;
+  if (!USE_REACTIONS || !name || _reactionScopeMissing) return false;
   try {
     await slack.reactions.add({ channel: INTAKE_CHANNEL, timestamp: ts, name });
     return true;
@@ -609,7 +612,7 @@ async function syncStates(known) {
     const type = iss.state.type;
     let thread;
     try {
-      thread = await slack.conversations.replies({ channel: INTAKE_CHANNEL, ts, limit: 30 });
+      thread = await slack.conversations.replies({ channel: INTAKE_CHANNEL, ts, limit: 40 });
     } catch (e) {
       console.error(`  ⚠️ ${iss.identifier} 스레드 조회 실패:`, e?.data?.error || e.message);
       continue;
@@ -617,38 +620,35 @@ async function syncStates(known) {
     const msgs = thread.messages || [];
     const body = msgs.map((m) => m.text || '').join('\n');
     const reactions = (msgs[0]?.reactions || []).map((r) => r.name);
-
     const already = (kind) =>
-      body.includes(NOTICE[kind]) || reactions.includes(REACTIONS[kind === 'completed' ? 'done' : kind]);
+      body.includes(NOTICE[kind]) ||
+      reactions.includes(REACTIONS[kind === 'completed' ? 'done' : kind]);
 
-    // 시작: 진행 중으로 넘어갔거나, 이미 완료됐어도 시작 알림이 없었다면 건너뛴다(완료가 더 중요).
-    if (type === 'started' && !already('started')) {
-      const ok = await react(ts, REACTIONS.started);
-      if (!ok) {
-        await slack.chat.postMessage({
-          channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
-          username: BOT_USERNAME, icon_emoji: BOT_ICON,
-          text: `▶️ *${iss.assignee?.name || '담당자'}* 님이 ${NOTICE.started}. (<${iss.url}|${iss.identifier}>)`,
-        });
-      }
+    const post = async (text, emoji) => {
+      await react(ts, emoji);
+      await slack.chat.postMessage({
+        channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
+        username: BOT_USERNAME, icon_emoji: BOT_ICON, text,
+      });
       changed++;
+    };
+
+    if (type === 'started' && !already('started')) {
+      await post(
+        `▶️ *${iss.assignee?.name || '담당자'}* 님이 ${NOTICE.started}. (<${iss.url}|${iss.identifier}>)`,
+        REACTIONS.started
+      );
       console.log(`  ▶️ ${iss.identifier} 시작 — ${iss.assignee?.name || '미배정'}`);
     }
 
-    if ((type === 'completed' && !already('completed')) || (type === 'canceled' && !already('canceled'))) {
-      const done = type === 'completed';
-      const ok = await react(ts, done ? REACTIONS.done : REACTIONS.canceled);
-      if (!ok) {
-        await slack.chat.postMessage({
-          channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
-          username: BOT_USERNAME, icon_emoji: BOT_ICON,
-          text: done
-            ? `✅ ${NOTICE.completed}. (<${iss.url}|${iss.identifier}>)`
-            : `🚫 이 ${NOTICE.canceled}. 사유는 <${iss.url}|${iss.identifier}>에 있습니다.`,
-        });
-      }
-      changed++;
-      console.log(`  ${done ? '✅' : '🚫'} ${iss.identifier} ${iss.state.name}`);
+    if (type === 'completed' && !already('completed')) {
+      await post(`✅ ${NOTICE.completed}. (<${iss.url}|${iss.identifier}>)`, REACTIONS.done);
+      console.log(`  ✅ ${iss.identifier} ${iss.state.name}`);
+    }
+
+    if (type === 'canceled' && !already('canceled')) {
+      await post(`🚫 이 ${NOTICE.canceled}. 사유는 <${iss.url}|${iss.identifier}>에 있습니다.`, REACTIONS.canceled);
+      console.log(`  🚫 ${iss.identifier} ${iss.state.name}`);
     }
   }
   console.log(`[sync] 검사 ${targets.length}건 · 알림 ${changed}건`);
