@@ -1,0 +1,66 @@
+name: Ops Request Intake
+
+# 운영 업무 요청 Workflow → Linear OPS 이슈 자동 생성 + 상태 역동기화
+#
+# 노트북 launchd에서 옮겨온 이유: 맥이 잠들면 실행되지 않아
+# 퇴근 후·주말 요청이 노트북을 열 때까지 접수되지 않았다.
+#
+# 멱등성은 상태 파일이 아니라 **Linear**가 담당한다.
+# 이슈 본문에 박힌 Slack 스레드 링크가 "이미 접수한 요청"의 증거이므로
+# 매번 새 러너에서 돌아도 중복 생성되지 않는다.
+
+on:
+  schedule:
+    # GitHub Actions 스케줄은 부하에 따라 지연된다(수 분~십수 분).
+    # 5분 간격으로 걸되, 지연되더라도 멱등성이 보장되므로 중복 위험은 없다.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '쓰기 없이 파싱·라우팅만 확인'
+        type: boolean
+        default: false
+      since:
+        description: '조회 범위 (예: 3d, 12h)'
+        type: string
+        default: '1d'
+
+concurrency:
+  # 지연으로 실행이 겹칠 때 동시 실행을 막는다.
+  group: ops-request-intake
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ops/ops-request-intake
+        run: npm install --no-audit --no-fund
+
+      - name: Write BigQuery credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Run intake
+        working-directory: ops/ops-request-intake
+        run: |
+          node index.js \
+            --since "${{ github.event.inputs.since || '1d' }}" \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

@@ -213,25 +213,36 @@ OPS_INTAKE_CHANNEL=C019ZSK6NNR node index.js   # 채널 override (테스트)
 
 Linear에서 이슈가 삭제되면 다음 동기화 때 자동으로 추적 해제된다. 그렇게 하지 않으면 영구히 조회 대상으로 남는다.
 
-## 가동 (launchd)
+## 가동 — GitHub Actions
+
+`.github/workflows/ops-request-intake.yml` · 5분 간격 (`*/5 * * * *`)
+
+노트북 launchd에서 옮겨왔다. **맥이 잠들면 실행되지 않아** 퇴근 후·주말 요청이
+노트북을 열 때까지 접수되지 않는 문제가 있었다(실측 최대 31분 지연 확인).
 
 ```bash
-launchctl load   ~/Library/LaunchAgents/com.gowid.ops-request-intake.plist   # 시작
-launchctl unload ~/Library/LaunchAgents/com.gowid.ops-request-intake.plist   # 중지
-launchctl list | grep ops-request-intake                                     # 상태
-tail -f ~/.claude/logs/ops-request-intake.log                                # 로그
+gh workflow run ops-request-intake.yml                    # 수동 실행
+gh workflow run ops-request-intake.yml -f dry_run=true    # 쓰기 없이 확인
+gh run list --workflow=ops-request-intake.yml --limit 5   # 이력
+gh run view <id> --log                                    # 로그
 ```
 
-5분 간격(`StartInterval 300`). 매 사이클마다 **접수 → 상태 동기화** 순으로 돈다.
+필요 시크릿: `SLACK_BOT_TOKEN` · `LINEAR_API_KEY` · `BIGQUERY_KEY_JSON`
 
-### 처음 켤 때는 반드시 `--seed`
+> GitHub Actions 스케줄은 부하에 따라 수 분~십수 분 지연된다. 5분을 보장하지 않는다.
+> 다만 멱등성이 Linear로 보장되므로 지연·중복 실행 모두 안전하다.
 
-```bash
-node index.js --seed --since 30d
-```
+## 멱등성 — Linear가 상태 저장소다
 
-채널에 이미 올라와 있는 요청들을 **이슈 생성 없이 처리완료로만 표시**한다.
-이걸 건너뛰면 과거 요청이 전부 소급 생성된다.
+**상태 파일을 쓰지 않는다.** GHA는 매번 새 러너라 파일이 유지되지 않기 때문이다.
+
+| 무엇 | 어떻게 판별하나 |
+|---|---|
+| 이미 접수한 요청인가 | 최근 14일 OPS 이슈 본문에서 Slack 스레드 링크(`archives/{채널}/p{ts}`)를 추출해 대조 |
+| 이미 보낸 알림인가 | 해당 스레드에 그 알림 문구(또는 이모지)가 있는지 확인 |
+
+로컬에서 돌리든 GHA에서 돌리든 결과가 같고, 상태 파일 유실로 인한 중복 생성이 원리적으로 불가능하다.
+(파일 방식일 때 실제로 두 번 중복 생성 사고가 났다)
 
 ## ⚠️ 주의
 
@@ -248,8 +259,8 @@ node index.js --seed --since 30d
 - **`conversations.history`에 `oldest`를 넓게 주면 안 된다.** 그 구간의 *가장 오래된* N건이 돌아와
   최신 메시지가 통째로 누락된다(`--since 30d`에서 실제로 0건이 나왔다).
   oldest 없이 최신 N건을 받아 클라이언트에서 자른다.
-- **state는 채널이 아니라 ts로만 키를 잡는다.** 다른 채널로 테스트할 때는
-  `OPS_STATE_FILE=/tmp/test-state.json`으로 분리할 것. 안 하면 실채널 기록이 섞인다.
+- **조회 범위(`--since`)를 너무 좁히지 말 것.** GHA 스케줄이 지연되면 그 사이 요청을 놓친다.
+  기본 `1d`는 하루치를 매번 훑는다는 뜻이고, Linear 대조로 중복은 걸러지므로 넓어도 안전하다.
 
 ## launchd 등록 (5분 간격)
 

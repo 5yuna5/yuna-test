@@ -41,9 +41,6 @@ const MARKER = '운영 업무 요청';
 // (bizops-due-alert가 'BizOps 마감 알림'을 쓰는 것과 같은 방식)
 const BOT_USERNAME = '서비스전략';
 const BOT_ICON = ':inbox_tray:';
-// ⚠️ state는 채널과 무관하게 ts로만 키를 잡는다.
-//    다른 채널로 테스트할 때는 OPS_STATE_FILE로 분리해야 실채널 기록이 오염되지 않는다.
-const STATE_FILE = process.env.OPS_STATE_FILE || path.join(__dirname, 'state', 'processed.json');
 const BQ_KEY = path.join(os.homedir(), '.claude/credentials/gowid-prd-bigquery-key.json');
 
 const LABELS = {
@@ -70,6 +67,13 @@ const SERVICE = [
 // 진행 상태를 채널에서 한눈에 보이게 하는 이모지.
 // started = Linear 담당자 배정됨 / done = Done / canceled = Canceled
 const REACTIONS = { started: 'arrow_forward', done: 'white_check_mark', canceled: 'no_entry_sign' };
+
+// 스레드에 이미 보낸 알림인지 판별하는 문구. 상태 파일 없이 중복 발송을 막는 기준이다.
+const NOTICE = {
+  started: '처리를 시작했습니다',
+  completed: '처리 완료되었습니다',
+  canceled: '요청은 종료되었습니다',
+};
 
 // ─── 담당자 라우팅 ───
 // 사람 사전. slack = 멘션용, linear = 배정·구독용.
@@ -150,9 +154,6 @@ const argVal = (flag, dflt) => {
   const i = args.indexOf(flag);
   return i >= 0 && args[i + 1] ? args[i + 1] : dflt;
 };
-// --seed: 지금 채널에 있는 요청들을 '처리완료'로만 표시하고 이슈는 만들지 않는다.
-// 가동 시작 시 과거 요청이 소급 생성되는 것을 막는 용도.
-const SEED = args.includes('--seed');
 const SYNC_ONLY = args.includes('--sync-only');
 const INTAKE_ONLY = args.includes('--intake-only');
 const LIMIT = Number(argVal('--limit', '200'));
@@ -244,20 +245,33 @@ function sinceToTs(s) {
   return String(Math.floor(Date.now() / 1000) - n * unit);
 }
 
-// ─── State (멱등성) ───
-function loadState() {
-  try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
-  } catch {
-    return { processed: {} };
-  }
+// ─── 멱등성: Linear를 상태 저장소로 쓴다 ───
+// 파일 state는 GHA처럼 매번 새 머신에서 도는 환경에서 유지되지 않는다.
+// 이슈 본문에 박아둔 Slack 스레드 링크가 곧 "이미 접수한 요청"의 증거다.
+
+/** 이슈 본문에서 Slack 메시지 ts를 뽑는다. .../archives/C123/p1788761486073129 → '1788761486.073129' */
+function tsFromDescription(desc, channel) {
+  const m = new RegExp(`archives/${channel}/p(\\d{10})(\\d{6})`).exec(desc || '');
+  return m ? `${m[1]}.${m[2]}` : null;
 }
-function saveState(st) {
-  // 60일 지난 항목은 정리
-  const cutoff = Date.now() / 1000 - 60 * 86400;
-  for (const k of Object.keys(st.processed)) if (Number(k) < cutoff) delete st.processed[k];
-  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(st, null, 2));
+
+/** 최근 N일 내 생성된 OPS 업무요청 이슈를 ts → 이슈 맵으로 */
+async function knownFromLinear(channel, days = 14) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const d = await linear(
+    `query($t:DateTimeOrDuration){
+       issues(filter:{ team:{ key:{ eq:"OPS" } }, createdAt:{ gte:$t } }, first:250){
+         nodes{ id identifier url description state{ name type } assignee{ name } }
+       }
+     }`,
+    { t: since }
+  );
+  const map = new Map();
+  for (const n of d.issues?.nodes || []) {
+    const ts = tsFromDescription(n.description, channel);
+    if (ts) map.set(ts, n);
+  }
+  return map;
 }
 
 // ─── Slack ───
@@ -282,6 +296,8 @@ const slack = new WebClient(slackToken());
 let _key = null;
 function linearKey() {
   if (_key) return _key;
+  // GHA 등 CI에서는 env, 로컬에서는 keychain
+  if (process.env.LINEAR_API_KEY) return (_key = process.env.LINEAR_API_KEY.trim());
   _key = execSync('security find-generic-password -s "linear-api-key" -w', { encoding: 'utf-8' }).trim();
   return _key;
 }
@@ -574,74 +590,80 @@ async function react(ts, name) {
   }
 }
 
-/** 추적 중인 이슈의 담당자·상태를 읽어 원본 메시지에 이모지를 반영한다. */
-async function syncStates(state) {
-  const pending = Object.entries(state.processed).filter(([, v]) => v && v.issueId && !v.done);
-  if (!pending.length) {
-    console.log('[sync] 추적 대상 없음');
+/**
+ * Linear 상태를 읽어 원본 메시지에 이모지(또는 스레드 코멘트)를 반영한다.
+ * 중복 발송 방지는 상태 파일이 아니라 **스레드에 이미 그 알림이 있는지**로 판단한다.
+ * (GHA처럼 매번 새 머신에서 도는 환경에서도 안전)
+ */
+async function syncStates(known) {
+  const targets = [...known.entries()].filter(([, iss]) =>
+    ['started', 'completed', 'canceled'].includes(iss.state?.type)
+  );
+  if (!targets.length) {
+    console.log('[sync] 알릴 상태 변화 없음');
     return 0;
   }
-  const data = await linear(
-    `query($ids:[ID!]){ issues(filter:{id:{in:$ids}}, first:250){ nodes{ id identifier url assignee{ name } state{ name type } } } }`,
-    { ids: pending.map(([, v]) => v.issueId) }
-  );
-  const byId = Object.fromEntries((data.issues?.nodes || []).map((n) => [n.id, n]));
-  let changed = 0;
 
-  for (const [ts, rec] of pending) {
-    const iss = byId[rec.issueId];
-    if (!iss) {
-      // Linear에서 삭제된 이슈. 추적에서 내리지 않으면 영구히 조회 대상으로 남는다.
-      rec.done = true;
-      rec.note = 'linear-issue-missing';
-      console.log(`  · ${rec.identifier} 추적 해제 (Linear에서 삭제됨)`);
+  let changed = 0;
+  for (const [ts, iss] of targets) {
+    const type = iss.state.type;
+    let thread;
+    try {
+      thread = await slack.conversations.replies({ channel: INTAKE_CHANNEL, ts, limit: 30 });
+    } catch (e) {
+      console.error(`  ⚠️ ${iss.identifier} 스레드 조회 실패:`, e?.data?.error || e.message);
       continue;
     }
-    const type = iss.state?.type;
+    const msgs = thread.messages || [];
+    const body = msgs.map((m) => m.text || '').join('\n');
+    const reactions = (msgs[0]?.reactions || []).map((r) => r.name);
 
-    // 시작 = 상태가 진행 중(In Progress / In Review)으로 넘어간 시점.
-    // 담당자는 접수 시 자동 배정되므로 배정 여부로는 시작을 알 수 없다.
-    if (!rec.started && type === 'started') {
+    const already = (kind) =>
+      body.includes(NOTICE[kind]) || reactions.includes(REACTIONS[kind === 'completed' ? 'done' : kind]);
+
+    // 시작: 진행 중으로 넘어갔거나, 이미 완료됐어도 시작 알림이 없었다면 건너뛴다(완료가 더 중요).
+    if (type === 'started' && !already('started')) {
       const ok = await react(ts, REACTIONS.started);
       if (!ok) {
         await slack.chat.postMessage({
           channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
           username: BOT_USERNAME, icon_emoji: BOT_ICON,
-          text: `▶️ *${iss.assignee?.name || '담당자'}* 님이 처리를 시작했습니다. (<${iss.url}|${iss.identifier}>)`,
+          text: `▶️ *${iss.assignee?.name || '담당자'}* 님이 ${NOTICE.started}. (<${iss.url}|${iss.identifier}>)`,
         });
       }
-      rec.started = true; changed++;
+      changed++;
       console.log(`  ▶️ ${iss.identifier} 시작 — ${iss.assignee?.name || '미배정'}`);
     }
 
-    if (type === 'completed' || type === 'canceled') {
-      const emoji = type === 'completed' ? REACTIONS.done : REACTIONS.canceled;
-      const ok = await react(ts, emoji);
+    if ((type === 'completed' && !already('completed')) || (type === 'canceled' && !already('canceled'))) {
+      const done = type === 'completed';
+      const ok = await react(ts, done ? REACTIONS.done : REACTIONS.canceled);
       if (!ok) {
         await slack.chat.postMessage({
           channel: INTAKE_CHANNEL, thread_ts: ts, unfurl_links: false,
           username: BOT_USERNAME, icon_emoji: BOT_ICON,
-          text: type === 'completed'
-            ? `✅ 처리 완료되었습니다. (<${iss.url}|${iss.identifier}>)`
-            : `🚫 이 요청은 종료되었습니다. 사유는 <${iss.url}|${iss.identifier}>에 있습니다.`,
+          text: done
+            ? `✅ ${NOTICE.completed}. (<${iss.url}|${iss.identifier}>)`
+            : `🚫 이 ${NOTICE.canceled}. 사유는 <${iss.url}|${iss.identifier}>에 있습니다.`,
         });
       }
-      rec.done = true; changed++;
-      console.log(`  ${type === 'completed' ? '✅' : '🚫'} ${iss.identifier} ${iss.state.name}`);
+      changed++;
+      console.log(`  ${done ? '✅' : '🚫'} ${iss.identifier} ${iss.state.name}`);
     }
   }
-  console.log(`[sync] 추적 ${pending.length}건 · 상태변경 ${changed}건`);
+  console.log(`[sync] 검사 ${targets.length}건 · 알림 ${changed}건`);
   return changed;
 }
 
 // ─── Main ───
 async function main() {
   console.log(`[intake] 채널 ${INTAKE_CHANNEL} · since ${SINCE}${DRY_RUN ? ' · DRY RUN' : ''}`);
-  const state = loadState();
+  // Linear가 곧 상태 저장소다. 이미 접수한 요청의 Slack ts를 여기서 얻는다.
+  const known = await knownFromLinear(INTAKE_CHANNEL);
+  console.log(`[intake] Linear 기존 접수 ${known.size}건 인식`);
 
   if (SYNC_ONLY) {
-    await syncStates(state);
-    saveState(state);
+    await syncStates(known);
     return;
   }
 
@@ -667,21 +689,12 @@ async function main() {
   const targets = (hist.messages || [])
     .filter((m) => Number(m.ts) >= cutoff)
     .filter(isTarget)
-    .filter((m) => !state.processed[m.ts])
+    .filter((m) => !known.has(m.ts))
     .sort((a, b) => Number(a.ts) - Number(b.ts));
 
-  if (SEED) {
-    for (const m of targets) {
-      state.processed[m.ts] = { channel: INTAKE_CHANNEL, identifier: null, issueId: null, at: new Date().toISOString(), done: true, note: 'seeded' };
-    }
-    saveState(state);
-    console.log(`[seed] ${targets.length}건을 처리완료로 표시 (이슈 생성 없음). 이후 신규 요청만 접수됩니다.`);
-    return;
-  }
-
-  console.log(`[intake] 대상 ${targets.length}건`);
+  console.log(`[intake] 신규 대상 ${targets.length}건`);
   if (!targets.length) {
-    if (!DRY_RUN && !INTAKE_ONLY) { await syncStates(state); saveState(state); }
+    if (!DRY_RUN && !INTAKE_ONLY) await syncStates(known);
     return;
   }
 
@@ -748,21 +761,11 @@ async function main() {
       icon_emoji: BOT_ICON,
     });
 
-    state.processed[m.ts] = {
-      channel: INTAKE_CHANNEL,
-      identifier: iss.identifier,
-      issueId: iss.id,
-      at: new Date().toISOString(),
-      started: false,
-      done: false,
-    };
+    known.set(m.ts, { ...iss, description: issue.description, state: { name: 'Backlog', type: 'backlog' }, assignee: null });
     created++;
   }
 
-  if (!DRY_RUN) {
-    if (!INTAKE_ONLY) await syncStates(state);
-    saveState(state);
-  }
+  if (!DRY_RUN && !INTAKE_ONLY) await syncStates(known);
   console.log(`\n[intake] 완료 — 생성 ${created}건`);
 }
 
