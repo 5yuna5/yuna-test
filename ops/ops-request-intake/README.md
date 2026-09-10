@@ -216,24 +216,57 @@ OPS_INTAKE_CHANNEL=C019ZSK6NNR node index.js   # 채널 override (테스트)
 
 Linear에서 이슈가 삭제되면 다음 동기화 때 자동으로 추적 해제된다. 그렇게 하지 않으면 영구히 조회 대상으로 남는다.
 
-## 가동 — GitHub Actions
+## 가동 — GitHub Actions 상시 루프
 
-`.github/workflows/ops-request-intake.yml` · 5분 간격 (`*/5 * * * *`)
+`.github/workflows/ops-request-intake-loop.yml` · **5분 간격 · 24시간**
 
-노트북 launchd에서 옮겨왔다. **맥이 잠들면 실행되지 않아** 퇴근 후·주말 요청이
-노트북을 열 때까지 접수되지 않는 문제가 있었다(실측 최대 31분 지연 확인).
+### 왜 cron이 아니라 루프인가
 
-```bash
-gh workflow run ops-request-intake.yml                    # 수동 실행
-gh workflow run ops-request-intake.yml -f dry_run=true    # 쓰기 없이 확인
-gh run list --workflow=ops-request-intake.yml --limit 5   # 이력
-gh run view <id> --log                                    # 로그
+`schedule` 이벤트를 GitHub이 심하게 스로틀링한다. 실측 결과다.
+
+```
+설정   */5 * * * *                       (5분)
+실측   264분 → 164분 → 143분 → 111분     평균 171분
 ```
 
-필요 시크릿: `SLACK_BOT_TOKEN` · `LINEAR_API_KEY` · `BIGQUERY_KEY_JSON`
+같은 레포의 `update-data`(매시간 cron)도 평균 369분이라 레포 전체 스케줄이 눌린다.
+반면 **`workflow_dispatch`는 지연 0초**로 즉시 실행된다.
 
-> GitHub Actions 스케줄은 부하에 따라 수 분~십수 분 지연된다. 5분을 보장하지 않는다.
-> 다만 멱등성이 Linear로 보장되므로 지연·중복 실행 모두 안전하다.
+그래서 한 잡 안에서 5분씩 자며 5시간 반복하고, 끝나기 전에 **자기 자신을 재기동**한다.
+`workflow_dispatch`·`repository_dispatch`는 `GITHUB_TOKEN`으로도 새 실행을 만들 수 있는
+예외라(다른 이벤트는 재귀 방지로 막힘) 별도 PAT가 필요 없다.
+
+- `concurrency: ops-intake-loop` → 실행 1 + 대기 1로 제한. 대기 건이 현재 루프 종료 직후
+  이어받아 **공백 없이 연속 커버**된다.
+- 시간당 cron(`17 * * * *`) 하나를 **자가복구 안전망**으로 남겨둔다. 체인이 끊겨도 결국 되살아난다.
+- 이 레포는 **public이라 Actions 사용량이 무료·무제한**이다.
+
+### Cloud Run을 안 쓴 이유
+
+권한이 없다. 사용 가능한 서비스계정 `dev-to-prod-bq-access@gowid-prd`는 BigQuery 전용이고
+`run.jobs.create`·`cloudscheduler.jobs.create`·`secretmanager.*`·`artifactregistry.*`·
+`cloudbuild.builds.create`·`iam.serviceAccounts.actAs` 가 **전부 없다**(REST로 실측).
+배포하려면 별도 권한을 받아야 한다.
+
+### 운영 명령
+
+```bash
+gh workflow run ops-request-intake-loop.yml              # 루프 기동(끊겼을 때)
+gh run list --workflow=ops-request-intake-loop.yml       # 루프 이력
+gh workflow run ops-request-intake.yml -f dry_run=true   # 수동 확인(쓰기 없음)
+```
+
+`ops-request-intake.yml`은 **수동 전용**이다. 스케줄은 걸려 있지 않다.
+
+### 로컬 launchd (선택적 이중화)
+
+`~/Library/LaunchAgents/com.gowid.ops-request-intake.plist` · 5분 간격.
+멱등성이 Linear 기반이라 GHA 루프와 **동시에 돌려도 중복이 생기지 않는다**(실측 확인).
+루프 체인이 안정화되면 꺼도 된다.
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.gowid.ops-request-intake.plist   # 중지
+```
 
 ## 멱등성 — Linear가 상태 저장소다
 
