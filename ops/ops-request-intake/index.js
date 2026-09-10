@@ -458,16 +458,32 @@ async function lookupCorp(input) {
   // 법인명 정규화: 정규식 이스케이프 함정을 피해 명시적 치환만 쓴다.
   // (r"[\s주식회사...]" 문자클래스는 '주'·'사' 같은 낱글자를 아무 데서나 지워
   //  '주식회사 사조' → '조' 처럼 망가진다. 토큰 단위 REPLACE가 정확하다.)
-  const NORM = (col) =>
-    `UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${col},'주식회사',''),'(주)',''),'㈜',''),'(유)',''),' ',''))`;
+  // 법인명 정규화. 표기 변형이 실제로 다양해서 열거가 아니라 '남길 것만 남기는' 방식을 쓴다.
+  //  · 전각 괄호 （주） 가 실존한다 (（주）메디클러스) — ASCII (주)만 지우면 매칭 실패
+  //  · 낱글자 제거(문자클래스)는 '주식회사 사조' → '조' 처럼 망가뜨리므로 토큰 단위로 지운다
+  //  · 남은 공백·기호·구두점은 전부 떨어낸다
+  const NORM = (col) => `
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(UPPER(${col}),
+        r'[（(][주유][）)]|㈜|㈲|주식회사|유한회사|유한책임회사', ''),
+      r'[^가-힣A-Z0-9]', '')`;
+  // 2단 매칭: 완전일치 우선, 없으면 접두일치 폴백.
+  //  등록명에 영문 별칭이 붙는 경우가 실존한다 — '주식회사 솔라스틱(Solarstic)'.
+  //  정규화하면 '솔라스틱SOLARSTIC'이 되어 '솔라스틱'과 완전일치하지 않는다.
+  //  접두일치는 결과가 정확히 1건일 때만 채택해 오매칭을 막는다.
   const sql = `
-    WITH corp AS (
+    WITH q AS ( SELECT ${NORM('@q')} AS qn ),
+    corp AS (
       SELECT c.idx, c.resCompanyNm AS corp_name,
-             REPLACE(c.resCompanyIdentityNo,'-','') AS brn
-      FROM \`gowid-prd.ods_stream_gowid.Corp\` c
+             REPLACE(c.resCompanyIdentityNo,'-','') AS brn,
+             IF(${NORM('c.resCompanyNm')} = q.qn, 0, 1) AS match_rank
+      FROM \`gowid-prd.ods_stream_gowid.Corp\` c, q
       WHERE ${byBrn
         ? "REPLACE(c.resCompanyIdentityNo,'-','') = @q"
-        : `${NORM('c.resCompanyNm')} = ${NORM('@q')}`}
+        : `LENGTH(q.qn) >= 2 AND (
+             ${NORM('c.resCompanyNm')} = q.qn
+             OR STARTS_WITH(${NORM('c.resCompanyNm')}, q.qn)
+           )`}
     ),
     iss AS (
       SELECT ci.idxCorp,
@@ -477,13 +493,17 @@ async function lookupCorp(input) {
       WHERE IFNULL(ci.isDeleted,0)=0 OR ci.issuedAt IS NOT NULL
       GROUP BY ci.idxCorp
     )
-    SELECT corp.corp_name, corp.brn,
+    SELECT corp.corp_name, corp.brn, corp.match_rank,
            IFNULL(iss.issued_cnt,0) AS issued_cnt,
            iss.issued_cc
     FROM corp LEFT JOIN iss ON iss.idxCorp = corp.idx
-    LIMIT 5`;
+    ORDER BY corp.match_rank
+    LIMIT 10`;
   try {
-    const [rows] = await bq().query({ query: sql, params: { q: byBrn ? digits : raw } });
+    const [all] = await bq().query({ query: sql, params: { q: byBrn ? digits : raw } });
+    const exact = all.filter((r) => Number(r.match_rank) === 0);
+    // 완전일치가 있으면 그것만, 없으면 접두일치 후보 전체를 본다.
+    const rows = exact.length ? exact : all;
     if (rows.length !== 1) {
       // 0건(미등록) 또는 2건 이상(동명이인) → 판정 보류, 입력값 그대로 사용
       return { corpName: raw, brn: byBrn ? digits : null, segment: '미확인', issuedCC: null, ambiguous: rows.length > 1 };
