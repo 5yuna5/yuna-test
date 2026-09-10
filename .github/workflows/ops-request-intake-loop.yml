@@ -1,0 +1,79 @@
+name: Ops Request Intake Loop
+
+# 5분마다 접수를 돌리는 상시 루프.
+#
+# 왜 cron이 아니라 루프인가:
+#   schedule 이벤트는 GitHub이 심하게 스로틀링한다. '*/5'로 걸었더니
+#   실측 평균 171분(264→164→143→111분) 간격으로 돌았다.
+#   반면 workflow_dispatch는 지연 0초로 즉시 실행된다.
+#   → 한 잡 안에서 5분씩 자며 반복하고, 끝나기 전에 자기 자신을 재기동한다.
+#
+# 비용: 이 레포는 public이라 Actions 사용량이 무료·무제한이다.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 체인이 끊겼을 때의 자가복구용. 스로틀링돼도 결국 붙어서 루프를 되살린다.
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+  actions: write   # 자기 자신 재기동에 필요
+
+concurrency:
+  # 실행 1개 + 대기 1개로 제한된다. 대기 중인 건이 현재 루프 종료 직후 이어받아
+  # 공백 없이 연속 커버된다.
+  group: ops-intake-loop
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340   # 잡 상한 6시간보다 여유 있게
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ops/ops-request-intake
+        run: npm install --no-audit --no-fund
+
+      - name: Write BigQuery credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Poll every 5 minutes for 5 hours
+        working-directory: ops/ops-request-intake
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          END=$(( $(date +%s) + 5*3600 ))
+          N=0
+          while [ "$(date +%s)" -lt "$END" ]; do
+            N=$((N+1))
+            echo "───────── cycle $N · $(TZ=Asia/Seoul date '+%m-%d %H:%M:%S KST')"
+            # 한 사이클이 실패해도 루프는 계속 돈다. 다음 사이클이 밀린 건을 잡는다.
+            node index.js --since 1d || echo "  ⚠️ cycle $N 실패 — 다음 사이클에서 재시도"
+            sleep 300
+          done
+          echo "루프 종료 — 총 $N 사이클"
+
+      - name: Re-dispatch self
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # workflow_dispatch·repository_dispatch는 GITHUB_TOKEN으로도
+          # 새 실행을 만들 수 있는 예외다(다른 이벤트는 재귀 방지로 막힘).
+          gh workflow run ops-request-intake-loop.yml --repo "${{ github.repository }}"
+          echo "다음 루프 기동 요청 완료"
