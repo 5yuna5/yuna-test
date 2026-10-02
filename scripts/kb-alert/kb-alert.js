@@ -15,7 +15,7 @@ const { google } = require('googleapis');
 const SHEET_ID = '1vxxnJpO7b4vfm3PSauYYad5yYsrjZUb3rKMt9Dqs_IU';
 const QUEUE_TAB = '검수 큐';
 const QUEUE_GID = 1499082914;
-// 임시 수신자: 오유나 개인 DM. D09HW23FF6K(나와의 DM)는 봇이 못 써서 봇↔유저 DM을 연다
+// 임시 수신자: 오유나 개인 DM. D09HW23FF6K(나와의 DM)는 봇 접근 불가(channel_not_found)라 사용자 ID로 봇 DM 발송
 const ALERT_USER = process.env.KB_ALERT_USER || 'U09J53NDGV9';
 const ALERT_CHANNEL = process.env.KB_ALERT_CHANNEL || '';
 const KEY_FILE = path.join(process.env.HOME, '.claude/credentials/gowid-prd-bigquery-key.json');
@@ -48,11 +48,9 @@ async function slackApi(method, body) {
   if (!d.ok) throw new Error(`Slack ${method} ${d.error}`);
   return d;
 }
-let dmChannel = null;
+// 사용자 ID로 바로 보내면 봇 DM(앱 메시지 탭)으로 간다 — chat:write만 필요 (봇에 im:write 없음)
 async function alertChannel() {
-  if (ALERT_CHANNEL) return ALERT_CHANNEL;
-  if (!dmChannel) dmChannel = (await slackApi('conversations.open', { users: ALERT_USER })).channel.id;
-  return dmChannel;
+  return ALERT_CHANNEL || ALERT_USER;
 }
 
 async function slack(text) {
