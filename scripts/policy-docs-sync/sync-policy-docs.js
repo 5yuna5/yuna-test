@@ -136,6 +136,7 @@ async function main() {
   }
   try {
     await sync();
+    await syncKb();
   } finally {
     if (!DRY_RUN) await releaseLock();
   }
@@ -192,6 +193,59 @@ async function sync() {
   await sb('DELETE', `policy_docs?source=eq.sheet&created_at=lt.${encodeURIComponent(newest.created_at)}`);
   await sb('PATCH', 'policy_sync_state?id=eq.1', { last_checked_at: now, last_changed_at: now, row_count: payload.length });
   console.log(`✅ 동기화 완료: ${payload.length}행 반영, ${oldIds.length}행 교체`);
+}
+
+// ─── Ask Me Everything 지식베이스 탭 (Q&A 답지 · 절차 SOP · 연락처·채널) ───
+// 시트 = SSOT. 탭 전체를 테이블로 교체한다(상태 무관하게 전부 싣고, 챗봇이 status='검수완료'만 조회)
+const KB_TABS = [
+  { title: 'Q&A 답지', table: 'kb_qa', key: 'qid', cols: {
+    qid: 'QID', status: '상태', audience: '대상', area: '영역', domain: '도메인', subtopic: '세부주제', card_company: '카드사',
+    question: '대표 질문', similar_q: '유사 질문·키워드', answer_customer: '답변(고객 안내용)', answer_internal: '내부 참고',
+    answer_type: '답변 유형', basis: '근거', confidence: '신뢰도', reviewer: '검수자', reviewed_at: '검수일', review_due: '재검토일' } },
+  { title: '절차 SOP', table: 'kb_sop', key: 'sop_id', cols: {
+    sop_id: 'SOP ID', sop_name: '절차명', step: '단계', actor: '주체', action: '할 일', channel: '채널·화면 경로', documents: '필요 서류',
+    lead_time: '소요', card_diff: '카드사별 차이', caution: '주의', basis: '근거', status: '상태' } },
+  { title: '연락처·채널', table: 'kb_contacts', key: 'purpose', cols: {
+    card_company: '카드사', purpose: '용도', contact_name: '담당자', phone: '전화', email: '이메일', path: '경로·방법', hours: '운영시간',
+    customer_shareable: '고객 안내', basis: '근거', note: '비고', status: '상태' } },
+];
+
+async function readTab(sheets, title) {
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `'${title}'!A1:Z3000` });
+  return res.data.values || [];
+}
+
+async function syncKb() {
+  const auth = new google.auth.GoogleAuth({ keyFile: KEY_FILE, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] });
+  const sheets = google.sheets({ version: 'v4', auth });
+  for (const tab of KB_TABS) {
+    let values;
+    try { values = await readTab(sheets, tab.title); } catch (e) { console.log(`  ⚠️ '${tab.title}' 탭 없음/읽기 실패 — 건너뜀`); continue; }
+    const header = (values[0] || []).map((h) => String(h || '').trim());
+    const idx = {};
+    for (const [field, label] of Object.entries(tab.cols)) idx[field] = header.indexOf(label);
+    if (idx[tab.key] === -1) { console.log(`  ⚠️ '${tab.title}' 필수 헤더 없음 — 건너뜀`); continue; }
+    const rows = [];
+    values.slice(1).forEach((raw, i) => {
+      const row = {};
+      for (const [field, j] of Object.entries(idx)) row[field] = j === -1 ? '' : String(raw[j] ?? '').trim();
+      if (!Object.values(row).some(Boolean)) return;
+      row.sheet_row = i + 2;
+      rows.push(row);
+    });
+    const fields = [...Object.keys(tab.cols), 'sheet_row'];
+    const existing = await sb('GET', `${tab.table}?select=${fields.join(',')}&order=sheet_row.asc`);
+    const h = (rs) => crypto.createHash('sha256').update(JSON.stringify(rs.map((r) => fields.map((f) => r[f] ?? '')))).digest('hex');
+    const approved = rows.filter((r) => r.status === '검수완료').length;
+    if (h(existing) === h(rows)) { console.log(`  ✅ ${tab.title}: 변경 없음 (${rows.length}행, 검수완료 ${approved})`); continue; }
+    if (DRY_RUN) { console.log(`  [dry-run] ${tab.title}: ${existing.length} → ${rows.length}행`); continue; }
+    const now = new Date().toISOString();
+    for (let i = 0; i < rows.length; i += 200) {
+      await sb('POST', tab.table, rows.slice(i, i + 200).map((r) => ({ ...r, synced_at: now })), { Prefer: 'return=minimal' });
+    }
+    await sb('DELETE', `${tab.table}?synced_at=lt.${encodeURIComponent(now)}`);
+    console.log(`  🔄 ${tab.title}: ${rows.length}행 반영 (검수완료 ${approved})`);
+  }
 }
 
 main().catch((err) => {
