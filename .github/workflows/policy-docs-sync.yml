@@ -1,0 +1,67 @@
+name: Policy Docs Sync (카드스쿼드 AI 원천시트)
+
+on:
+  schedule:
+    # 매시간 :20 — 변경 없으면 쓰기 생략(no-op)
+    - cron: '20 * * * *'
+  workflow_dispatch: # 수동 실행도 가능
+
+concurrency:
+  group: policy-docs-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: scripts/policy-docs-sync
+        run: npm install
+
+      - name: Write Google service account credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Sync sheet → Supabase (1st attempt)
+        id: sync1
+        working-directory: scripts/policy-docs-sync
+        continue-on-error: true
+        run: node sync-policy-docs.js
+
+      - name: Retry after 60s (2nd attempt)
+        id: sync2
+        if: steps.sync1.outcome == 'failure'
+        working-directory: scripts/policy-docs-sync
+        continue-on-error: true
+        run: |
+          sleep 60
+          node sync-policy-docs.js
+
+      - name: Notify failure via Slack DM
+        if: steps.sync1.outcome == 'failure' && steps.sync2.outcome == 'failure'
+        run: |
+          curl -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "channel": "D09HW23FF6K",
+              "text": "🚨 카드스쿼드 AI 정책시트 동기화 실패 (재시도 후에도 실패)\n\n확인: https://github.com/5yuna5/yuna-test/actions/runs/${{ github.run_id }}"
+            }'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Fail job if all attempts failed
+        if: steps.sync1.outcome == 'failure' && steps.sync2.outcome == 'failure'
+        run: exit 1

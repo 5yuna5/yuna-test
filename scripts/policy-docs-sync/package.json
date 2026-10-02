@@ -1,0 +1,10 @@
+{
+  "name": "policy-docs-sync",
+  "version": "1.0.0",
+  "description": "카드스쿼드 AI 원천시트 → Supabase policy_docs 동기화",
+  "main": "sync-policy-docs.js",
+  "private": true,
+  "dependencies": {
+    "googleapis": "^171.4.0"
+  }
+}
