@@ -15,7 +15,9 @@ const { google } = require('googleapis');
 const SHEET_ID = '1vxxnJpO7b4vfm3PSauYYad5yYsrjZUb3rKMt9Dqs_IU';
 const QUEUE_TAB = '검수 큐';
 const QUEUE_GID = 1499082914;
-const SLACK_CHANNEL = process.env.KB_ALERT_CHANNEL || 'D09HW23FF6K'; // 임시: 오유나 DM
+// 임시 수신자: 오유나 개인 DM. D09HW23FF6K(나와의 DM)는 봇이 못 써서 봇↔유저 DM을 연다
+const ALERT_USER = process.env.KB_ALERT_USER || 'U09J53NDGV9';
+const ALERT_CHANNEL = process.env.KB_ALERT_CHANNEL || '';
 const KEY_FILE = path.join(process.env.HOME, '.claude/credentials/gowid-prd-bigquery-key.json');
 const SUPABASE_URL = 'https://okiipcxxaywvcmeecqvx.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9raWlwY3h4YXl3dmNtZWVjcXZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NDM5NjEsImV4cCI6MjA5MDUxOTk2MX0.xldBRKo6laOy89zGaWT_Z3azPc30-c4iUFVixt3ZvcY';
@@ -36,14 +38,25 @@ async function sb(method, query, body, extra = {}) {
 const kst = (iso) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 16);
 const cut = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; };
 
-async function slack(text) {
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
+async function slackApi(method, body) {
+  const res = await fetch(`https://slack.com/api/${method}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ channel: SLACK_CHANNEL, text, unfurl_links: false }),
+    body: JSON.stringify(body),
   });
   const d = await res.json();
-  if (!d.ok) throw new Error(`Slack ${d.error}`);
+  if (!d.ok) throw new Error(`Slack ${method} ${d.error}`);
+  return d;
+}
+let dmChannel = null;
+async function alertChannel() {
+  if (ALERT_CHANNEL) return ALERT_CHANNEL;
+  if (!dmChannel) dmChannel = (await slackApi('conversations.open', { users: ALERT_USER })).channel.id;
+  return dmChannel;
+}
+
+async function slack(text) {
+  return slackApi('chat.postMessage', { channel: await alertChannel(), text, unfurl_links: false });
 }
 
 async function main() {
@@ -81,13 +94,17 @@ async function main() {
     ].filter(Boolean).join('\n');
     if (DRY_RUN) { console.log(text, '\n'); continue; }
 
-    const appended = await sheets.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID, range: `'${QUEUE_TAB}'!A1`, valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [[kst(q.created_at), q.channel, q.asker_type, q.question, q.answer, q.reason, q.matched_qid || '', q.verify_note || '', '', q.status, '', '', `큐 #${q.id}`]] },
-    });
-    const sheetRow = Number((appended.data.updates.updatedRange.match(/!A(\d+)/) || [])[1]) || null;
+    // 시트 기록 → sheet_row 저장 → 슬랙 → alerted_at. 슬랙 실패로 재시도돼도 시트 행은 한 번만 생긴다
+    if (!q.sheet_row) {
+      const appended = await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID, range: `'${QUEUE_TAB}'!A1`, valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [[kst(q.created_at), q.channel, q.asker_type, q.question, q.answer, q.reason, q.matched_qid || '', q.verify_note || '', '', q.status, '', '', `큐 #${q.id}`]] },
+      });
+      const sheetRow = Number((appended.data.updates.updatedRange.match(/!A(\d+)/) || [])[1]) || null;
+      await sb('PATCH', `kb_review_queue?id=eq.${q.id}`, { sheet_row: sheetRow });
+    }
     await slack(text);
-    await sb('PATCH', `kb_review_queue?id=eq.${q.id}`, { alerted_at: new Date().toISOString(), sheet_row: sheetRow });
+    await sb('PATCH', `kb_review_queue?id=eq.${q.id}`, { alerted_at: new Date().toISOString() });
   }
   console.log(`✅ 알럿 ${items.length}건 발송·시트 기록`);
 }
