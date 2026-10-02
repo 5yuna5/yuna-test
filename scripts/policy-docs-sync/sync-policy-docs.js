@@ -12,7 +12,7 @@
  * - type / policy_types 는 시트에 없으므로 같은 카테고리|항목의 기존 값을 승계
  *
  * 사용: node sync-policy-docs.js [--dry-run]
- * 실행: GitHub Actions policy-docs-sync.yml (매시간 :20)
+ * 실행: GitHub Actions policy-docs-sync.yml (매시간 :20) + Mac launchd com.gowid.policy-docs-sync (매시간 :50, GHA 지연 대비)
  */
 
 const path = require('path');
@@ -115,7 +115,33 @@ const hashRows = (rows) =>
 
 const defaultPolicyTypes = (category) => (category === '한도 심사' ? ['limit_policy'] : ['card_policy']);
 
+// GHA(:20)와 launchd(:50)가 GHA 지연으로 겹칠 수 있어 5분 잠금. 단일 UPDATE 조건부라 원자적
+async function acquireLock() {
+  const now = new Date();
+  const until = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
+  const rows = await sb(
+    'PATCH',
+    `policy_sync_state?id=eq.1&or=(lock_until.is.null,lock_until.lt.${encodeURIComponent(now.toISOString())})`,
+    { lock_until: until },
+    { Prefer: 'return=representation' }
+  );
+  return rows.length === 1;
+}
+const releaseLock = () => sb('PATCH', 'policy_sync_state?id=eq.1', { lock_until: null });
+
 async function main() {
+  if (!DRY_RUN && !(await acquireLock())) {
+    console.log('⏭️ 다른 동기화가 실행 중 — 건너뜀');
+    return;
+  }
+  try {
+    await sync();
+  } finally {
+    if (!DRY_RUN) await releaseLock();
+  }
+}
+
+async function sync() {
   console.log(`📥 시트 읽는 중... ${DRY_RUN ? '(dry-run)' : ''}`);
   const { title, values } = await readSheet();
   const { rows, colOf } = parseRows(values);
@@ -157,13 +183,13 @@ async function main() {
     return;
   }
 
-  // 1) 새 행 먼저 넣고 2) 옛 행 삭제 — 중간 실패 시에도 데이터가 비지 않게
+  // 1) 새 행 먼저 넣고 2) 가장 최근 배치보다 오래된 시트 행 삭제 — 중간 실패 시에도 데이터가 비지 않게.
+  // 잠금이 풀린 뒤 겹쳐 돌아도 "최신 배치만 남김"으로 수렴한다 (옛 id 목록 기준 삭제는 중복이 남음)
   for (let i = 0; i < payload.length; i += 100) {
     await sb('POST', 'policy_docs', payload.slice(i, i + 100), { Prefer: 'return=minimal' });
   }
-  for (let i = 0; i < oldIds.length; i += 100) {
-    await sb('DELETE', `policy_docs?id=in.(${oldIds.slice(i, i + 100).join(',')})&source=eq.sheet`);
-  }
+  const [newest] = await sb('GET', 'policy_docs?select=created_at&source=eq.sheet&order=created_at.desc&limit=1');
+  await sb('DELETE', `policy_docs?source=eq.sheet&created_at=lt.${encodeURIComponent(newest.created_at)}`);
   await sb('PATCH', 'policy_sync_state?id=eq.1', { last_checked_at: now, last_changed_at: now, row_count: payload.length });
   console.log(`✅ 동기화 완료: ${payload.length}행 반영, ${oldIds.length}행 교체`);
 }
