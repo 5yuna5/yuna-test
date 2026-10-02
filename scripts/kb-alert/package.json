@@ -1,0 +1,10 @@
+{
+  "name": "kb-alert",
+  "version": "1.0.0",
+  "description": "카드스쿼드 AI 검수 큐 알럿 (슬랙 DM + 시트)",
+  "main": "kb-alert.js",
+  "private": true,
+  "dependencies": {
+    "googleapis": "^171.4.0"
+  }
+}

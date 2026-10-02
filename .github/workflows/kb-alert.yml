@@ -1,0 +1,40 @@
+name: KB Review Alert (카드스쿼드 AI 검수 큐)
+
+on:
+  # 즉시 발송은 Mac launchd(com.gowid.kb-alert-trigger)가 workflow_dispatch로 깨운다
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *' # 안전망 (Mac 꺼짐 대비)
+
+concurrency:
+  group: kb-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: scripts/kb-alert
+        run: npm install
+
+      - name: Write Google service account credentials
+        run: |
+          mkdir -p $HOME/.claude/credentials
+          printenv BIGQUERY_KEY_JSON > $HOME/.claude/credentials/gowid-prd-bigquery-key.json
+        env:
+          BIGQUERY_KEY_JSON: ${{ secrets.BIGQUERY_KEY_JSON }}
+
+      - name: Send review alerts
+        working-directory: scripts/kb-alert
+        run: node kb-alert.js
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
