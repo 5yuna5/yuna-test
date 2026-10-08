@@ -1,0 +1,13 @@
+{
+  "name": "limit-integrity-alert",
+  "version": "1.0.0",
+  "description": "한도 정합성 알럿 — 보증금(계약=입금=한도) / 발급(승인=현재) 대조",
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.2.0",
+    "@slack/web-api": "^7.14.1",
+    "dotenv": "^17.3.1",
+    "googleapis": "^171.4.0"
+  }
+}
