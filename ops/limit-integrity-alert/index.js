@@ -568,6 +568,7 @@ function applyReasons(it, slackEvents, crmEvents) {
     if (!e) return;
     it.reason = `${prefix}${e.date} ${e.src === 'CRM' ? '[CRM] ' : ''}${e.text}`;
     it.reasonLink = e.link || '';
+    it.reasonIsEvidence = e.type !== 'NOTE'; // 일반 대화(NOTE)는 참고용 — 슬랙 알림엔 근거로 달지 않음
   };
   const explain = (e, why) => { it.code = 'EXPLAINED'; it.note = `${why} · 원판정: ${it.note}`; setReason(e); };
   const { raw } = it;
@@ -905,34 +906,44 @@ async function syncSheet(depItems, issItems, dwDate) {
 }
 
 // ─── Slack ───
+const CARD_KO = { LOTTE: '롯데', SHINHAN: '신한', BC: '비씨', KB: '국민', SAMSUNG: '삼성' };
+
+// 슬랙 요약: ① 보증금 건수 / ② 발급 건수 / ③ 업체별 상세 (확인 필요 건만)
 function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
   const today = todayKstDate();
-  const countBy = (items) => {
-    const m = {};
-    for (const it of items) if (it.code !== 'EXPLAINED') m[it.code] = (m[it.code] || 0) + 1;
-    return Object.entries(m).sort((a, b) => CODES[a[0]].sev - CODES[b[0]].sev)
-      .map(([c, n]) => `${CODES[c].label} ${n}`).join('  ·  ') || '이상 없음 :white_check_mark:';
+  const open = (items) => items.filter((it) => it.code !== 'EXPLAINED');
+  const dep = open(depItems);
+  const iss = open(issItems);
+  const count = (items) => (items.length ? `확인 필요 *${items.length}건*` : '확인 필요 0건 :white_check_mark:');
+  const line = (it) => {
+    const [mark, ...name] = CODES[it.code].label.split(' ');
+    const card = it.tab === 'issuance' ? ` (${CARD_KO[it.card_company] || it.card_company})` : '';
+    const link = it.reasonLink && it.reasonIsEvidence ? `  <${it.reasonLink}|근거>` : '';
+    return `${mark} *${it.corp_name}*${card} — ${name.join(' ')}${it.isNew ? ' :new:' : ''}\n      └ ${it.note}${link}`;
   };
-  const line = (it) => `${it.isNew ? ':new: ' : ''}*${it.corp_name}* ${it.tab === 'issuance' ? `(${it.card_company}) ` : ''}— ${it.note}` +
-    (it.reasonLink ? ` <${it.reasonLink}|근거>` : '');
-  const urgent = (items) => items.filter((it) => it.code !== 'EXPLAINED' && (it.isNew || CODES[it.code].sev <= 2)); // 신규 + 🔴 전체
 
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `:mag: 한도 정합성 점검 (${today.slice(5).replace('-', '/')})` } },
-    { type: 'section', text: { type: 'mrkdwn', text: `*① 보증금* (계약서 값 = 입금액 = 현재 한도)\n${countBy(depItems)}` } },
-    { type: 'section', text: { type: 'mrkdwn', text: `*② 발급* (발급 승인한도 = 현재 한도)\n${countBy(issItems)}` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `*① 보증금* (계약서 값 = 입금액 = 현재 한도)\n${count(dep)}` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `*② 발급* (발급 승인한도 = 현재 한도)\n${count(iss)}` } },
   ];
 
-  const focus = [...urgent(depItems), ...urgent(issItems)];
-  if (focus.length) {
-    const MAX = 15;
-    const text = focus.slice(0, MAX).map(line).join('\n') + (focus.length > MAX ? `\n…외 ${focus.length - MAX}건 (시트 참고)` : '');
+  const detail = [...dep, ...iss];
+  if (detail.length) {
     blocks.push({ type: 'divider' });
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*신규 감지 + 🔴 최우선 건*\n${text}` } });
+    // 섹션 텍스트 3,000자 제한 → 나눠 담는다
+    let chunk = '*③ 업체별 상세*';
+    for (const l of detail.map(line)) {
+      if ((chunk + '\n' + l).length > 2900) {
+        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
+        chunk = l;
+      } else chunk += '\n' + l;
+    }
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: chunk } });
   }
   blocks.push({
     type: 'context',
-    elements: [{ type: 'mrkdwn', text: `<${SHEET_URL}|전체 목록·진척 관리 시트>  ·  ⚪ 슬랙·CRM에서 사유 확인되어 알림 제외 ${[...depItems, ...issItems].filter((it) => it.code === 'EXPLAINED').length}건  ·  어제 대비 해소 ${resolvedCount}건  ·  카드사 한도 기준일 ${dwDate}` }],
+    elements: [{ type: 'mrkdwn', text: `<${SHEET_URL}|진척 관리 시트>  ·  사유 확인되어 해소 처리 ${depItems.length + issItems.length - detail.length}건  ·  카드사 한도 기준일 ${dwDate}` }],
   });
   return blocks;
 }
