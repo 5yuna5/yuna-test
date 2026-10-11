@@ -432,14 +432,15 @@ function mentionsCorp(text, corp) {
   // 다른 사업자번호가 적힌 메시지는 이름이 비슷해도 다른 법인 (예: '엔엠' vs '더씨엔엠')
   if (/\d{3}-\d{2}-\d{5}|\(\d{10}\)/.test(text)) return false;
   const core = coreName(corp.corp_name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return core.length >= 2 && new RegExp(`(^|[^가-힣])${core}([^가-힣]|$)`).test(text);
+  // 앞쪽만 경계로 본다 — 뒤에는 조사가 붙는다 (예: '파스토로보틱스로', '데벨 아래금액')
+  return core.length >= 2 && new RegExp(`(^|[^가-힣])${core}`).test(text);
 }
 
 // 슬랙 메시지 → 사유 이벤트
 function parseEvent(raw, date, link) {
   const t = String(raw || '').replace(/&gt;/g, '>').replace(/\*/g, '').replace(/\s+/g, ' ');
   const base = { date, link, text: clip(t, 160) };
-  const structured = /한도 하향 신청|한도조정예정|심사 결과|부여 한도|승인 완료 알림/.test(t);
+  const structured = /한도 하향 신청|한도조정예정|심사 결과|부여 한도|승인 완료 알림|임시\s*한도|임시기간/.test(t);
   if (!structured && (BULK_MSG.test(t) || t.length > 500)) return null;
   if (/한도 하향 신청|한도조정예정/.test(t)) {
     const m = t.match(/하향 한도:\s*([\d,]+)원/) || t.match(/[\d,]+\s*→\s*([\d,]+)/);
@@ -450,6 +451,12 @@ function parseEvent(raw, date, link) {
   if (/한도상향 심사완료/.test(t) || (/심사 결과/.test(t) && /부여 한도/.test(t) && /APPROVAL/.test(t))) {
     const m = t.match(/부여 한도:\s*([\d,]+)/);
     return { ...base, type: 'UP', card: normCard((t.match(/카드사:\s*(\S+)/) || [])[1] || ''), to: toAmount(m && m[1]) };
+  }
+  // 임시한도: 카드사 전문엔 원래 한도로 내려오지만 실제 운영한도는 임시값 (예: 파스토로보틱스 롯데 15억 ~10/29, 전문 5억)
+  if (/임시\s*한도|임시기간|임시 한도/.test(t)) {
+    const m = t.match(/~\s*(\d{1,2})\/(\d{1,2})/);
+    const until = m ? `${date.slice(0, 4)}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : null;
+    return { ...base, type: 'TEMP', until };
   }
   if (/승인 완료 알림/.test(t)) return { ...base, type: 'ISSUED', card: normCard((t.match(/카드종류:\s*(\S+)/) || [])[1] || '') };
   if (/보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t)) return { ...base, type: 'REFUND_DONE' };
@@ -468,6 +475,7 @@ async function collectSlackEvents(corps) {
     for (const c of corps) {
       const queries = [`"${coreName(c.corp_name)}" after:${after}`];
       if (c.isDeposit) queries.push(`"${coreName(c.corp_name)}" in:#${FINANCE_CHANNEL_NAME}`);
+      if (c.hasMismatch) queries.push(`"${coreName(c.corp_name)}" 임시 after:${after}`); // 임시한도는 오래된 스레드에 있어 상위 결과에서 밀림
       for (const q of queries) try {
         const res = await userSlack.search.messages({ query: q, sort: 'timestamp', sort_dir: 'desc', count: 30 });
         for (const m of res.messages?.matches || []) {
@@ -551,7 +559,8 @@ async function collectCrm(bznos) {
   for (const r of rows) {
     if (!map.has(r.bzno)) map.set(r.bzno, []);
     const t = String(r.content || '');
-    const type = /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t) ? 'REFUND_DONE'
+    const type = /임시\s*한도|임시기간/.test(t) ? 'TEMP'
+      : /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t) ? 'REFUND_DONE'
       : /보증금[^.]{0,40}반환/.test(t) ? 'REFUND_REQ'
         : /해지|탈회|철회/.test(t) ? 'EXIT' : 'NOTE';
     map.get(r.bzno).push({ type, date: r.d, text: clip(t, 160), link: '', src: 'CRM' });
@@ -586,6 +595,14 @@ function applyReasons(it, slackEvents, crmEvents) {
       }
     }
     if (up && up.to === raw.clCur && daysSinceDate(up.date) <= 5) return explain(up, '상향 승인 직후 카드사 반영 대기');
+    // 내부 > 카드사인데 임시한도 운영 중 → 정상. 종료일이 지났으면 내부 한도 정리 필요로 남긴다
+    const temp = evs.find((e) => e.type === 'TEMP');
+    if (it.code === 'MISMATCH' && temp && raw.clCur > (raw.dwTotal ?? 0)) {
+      const ended = temp.until && temp.until < todayKstDate();
+      if (!ended) return explain(temp, `임시한도 운영 중${temp.until ? `(~${temp.until.slice(5)})` : ''} — 카드사 전문은 원래 한도로 표시`);
+      it.note = `임시한도 종료(${temp.until}) 후에도 내부 ${fmtAmt(raw.clCur)} 그대로 · 카드사 ${fmtAmt(raw.dwTotal)} → 내부 한도 정리 필요`;
+      return setReason(temp);
+    }
     const issuedEv = pick('ISSUED');
     if (it.code === 'NOT_REFLECTED' && issuedEv && daysSinceDate(issuedEv.date) <= 5) return explain(issuedEv, '신규 발급 직후 카드사 반영 대기');
     // 그 카드사 카드가 전부 해지됨 → 고객 사용 영향 없음, 내부 한도 기록만 남은 상태
@@ -628,7 +645,10 @@ function applyReasons(it, slackEvents, crmEvents) {
 }
 
 async function attachReasons(items) {
-  const corps = [...new Map(items.map((it) => [it.bzno, { bzno: it.bzno, corp_name: it.corp_name, isDeposit: it.tab === 'deposit' }])).values()];
+  const corps = [...new Map(items.map((it) => [it.bzno, {
+    bzno: it.bzno, corp_name: it.corp_name, isDeposit: it.tab === 'deposit',
+    hasMismatch: items.some((x) => x.bzno === it.bzno && x.code === 'MISMATCH'),
+  }])).values()];
   const [{ events, source }, crm] = await Promise.all([collectSlackEvents(corps), collectCrm(corps.map((c) => c.bzno))]);
   for (const it of items) applyReasons(it, events.get(it.bzno), crm.get(it.bzno));
   return source;
