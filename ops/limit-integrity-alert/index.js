@@ -58,13 +58,17 @@ const sheets = google.sheets({
 const CODES = {
   DEP_ZERO: { label: '🔴 보증금있음·한도0원', sev: 1 },
   ISS_ZERO: { label: '🔴 사유없는 0원화', sev: 1 },
+  DEC_NOT_APPLIED: { label: '🔴 하향신청 카드사 미반영', sev: 1 },
   MISMATCH: { label: '🔴 내부한도≠카드사한도', sev: 2 },
   NO_FILE: { label: '🔴 계약서 파일 없음', sev: 2 },
   NOT_REFLECTED: { label: '🟠 카드사 한도 미반영', sev: 3 },
   ISS_DROP: { label: '🟠 사유없는 감소', sev: 3 },
   DEP_UNREFUNDED: { label: '🟠 탈회·보증금 미반환', sev: 3 },
+  DEP_REFUND_UNRECORDED: { label: '🟠 보증금 반환·상계 완료, 시스템 미기록', sev: 3 },
+  DEP_REFUND_PENDING: { label: '🟠 보증금 반환 요청 후 미처리', sev: 3 },
   DEP_IN_DIFF: { label: '🟠 계약값≠입금액', sev: 3 },
   OVER_DEP: { label: '🟡 한도>보증금잔액(확인)', sev: 4 },
+  EXPLAINED: { label: '⚪ 사유 확인됨', sev: 9 }, // 슬랙·CRM에 사유가 있는 변동 — 시트에만 남기고 알림 제외
 };
 
 // ─── BigQuery ───
@@ -92,9 +96,11 @@ const COMMON_CTE = `
       AND NOT REGEXP_CONTAINS(IFNULL(c.corp_name, ''), r'고위드')
   ),
   deleted AS (
-    SELECT idx FROM \`gowid-prd.ods_stream_gowid.Corp\`
+    SELECT idx FROM (
+      SELECT idx, isDeleted FROM \`gowid-prd.ods_stream_gowid.Corp\`
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY idx ORDER BY datastream_metadata.source_timestamp DESC) = 1
+    )
     WHERE isDeleted = 1
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY idx ORDER BY datastream_metadata.source_timestamp DESC) = 1
   ),
   cl_raw AS (
     SELECT * FROM \`gowid-prd.ods_stream_gowid.CardLimit\`
@@ -194,6 +200,25 @@ async function fetchIssuance() {
     WHERE date_id >= DATE_SUB(CURRENT_DATE('Asia/Seoul'), INTERVAL ${ISSUE_LOOKBACK_DAYS + 7} DAY)
     GROUP BY 1, 2
   ),
+  -- 발급 승인한도 = 발급일 전후 CardLimit에 확정된 승인값.
+  -- card_issuance.granted_limit은 고객 신청 한도와 같아서 쓰면 안 됨 (예: 에드믹바이오 신청 1,000만 / 승인 300만).
+  -- CardLimit은 발급 시 신청값으로 잠깐 기록됐다가 1초 뒤 카드사 승인값으로 덮이므로 마지막 행을 쓴다.
+  cl_hist AS (
+    SELECT idxCorp, cardCompany, updatedAt, approvedLimitAmount, datastream_metadata.source_timestamp AS ts
+    FROM \`gowid-prd.ods_stream_gowid.CardLimit\`
+    WHERE isDeleted = 0 AND approvedLimitAmount > 0
+  ),
+  iss_appr AS (
+    SELECT corp.gowid_corp_idx AS idxCorp, cc.card_company_code AS cardCompany,
+      ARRAY_AGG(h.approvedLimitAmount ORDER BY h.updatedAt DESC, h.ts DESC LIMIT 1)[OFFSET(0)] AS issued_approved
+    FROM iss
+    JOIN corp USING (corp_id)
+    JOIN cc USING (card_company_id)
+    JOIN cl_hist h ON h.idxCorp = corp.gowid_corp_idx AND h.cardCompany = cc.card_company_code
+      AND DATE(h.updatedAt) BETWEEN DATE_SUB(DATE(iss.issued_at, 'Asia/Seoul'), INTERVAL 3 DAY)
+                                AND DATE_ADD(DATE(iss.issued_at, 'Asia/Seoul'), INTERVAL 1 DAY)
+    GROUP BY 1, 2
+  ),
   ld AS (
     SELECT idxCorp, cardCompany, MAX(createdAt) AS last_decrease_at
     FROM (
@@ -207,7 +232,8 @@ async function fetchIssuance() {
     cl.idxCorp AS idx, corp.corp_name, CAST(corp.corp_id AS STRING) AS bzno, cl.cardCompany AS card_company,
     CAST(DATE(iss.issued_at, 'Asia/Seoul') AS STRING) AS issued_date,
     DATE_DIFF(CURRENT_DATE('Asia/Seoul'), DATE(iss.issued_at, 'Asia/Seoul'), DAY) AS days_since_issued,
-    iss.granted_limit AS issued_limit,
+    iss.granted_limit AS requested_limit,
+    ia.issued_approved AS issued_limit,
     cl.cl_approved, cl.cl_current, cl.last_changed_type,
     CAST(cl.cl_updated_at AS STRING) AS cl_updated_at,
     DATETIME_DIFF(CURRENT_DATETIME('Asia/Seoul'), cl.cl_updated_at, HOUR) AS hours_since_cl_update,
@@ -223,7 +249,9 @@ async function fetchIssuance() {
   LEFT JOIN dw ON dw.corp_id = corp.corp_id AND dw.card_company_id = cc.card_company_id
   LEFT JOIN dw_hist h ON h.corp_id = corp.corp_id AND h.card_company_id = cc.card_company_id
   LEFT JOIN ld ON ld.idxCorp = cl.idxCorp AND ld.cardCompany = cl.cardCompany
+  LEFT JOIN iss_appr ia ON ia.idxCorp = cl.idxCorp AND ia.cardCompany = cl.cardCompany
   WHERE cl.is_issued = 1
+    AND cl.cardCompany != 'SAMSUNG' -- 삼성 제휴 중단: 카드사 한도 데이터 없음
     AND cl.idxCorp NOT IN (SELECT idx FROM deleted)
   `);
 }
@@ -274,8 +302,10 @@ function classifyDeposit(r) {
   if (!codes.length) return null;
   return {
     key: r.bzno,
+    tab: 'deposit',
     code: codes[0],
     codes,
+    raw: { bal, lim, contract },
     corp_name: r.corp_name,
     bzno: r.bzno,
     card_company: r.cl_str || '-',
@@ -303,7 +333,8 @@ function classifyIssuance(r) {
       codes.push('ISS_ZERO');
       notes.push(`발급 승인 ${fmtAmt(issued)} → 현재 0원, 감액 기록 없음` +
         (r.dw_last_positive_date ? ` (카드사 마지막 정상일 ${r.dw_last_positive_date})` : ' (카드사 한도 반영 이력 없음)'));
-    } else if (cur < issued) {
+    } else if (cur < issued && r.card_company !== 'BC') {
+      // BC는 카드사 한도가 카드별 한도 합으로 잡혀 소폭 변동이 잦음 → 0원화만 본다
       codes.push('ISS_DROP');
       notes.push(`발급 승인 ${fmtAmt(issued)} → 현재 ${fmtAmt(cur)}, 감액 기록 없음`);
     }
@@ -325,8 +356,10 @@ function classifyIssuance(r) {
   codes.sort((a, b) => CODES[a].sev - CODES[b].sev);
   return {
     key: `${r.bzno}|${r.card_company}`,
+    tab: 'issuance',
     code: codes[0],
     codes,
+    raw: { clCur, dwTotal, issued },
     corp_name: r.corp_name,
     bzno: r.bzno,
     card_company: r.card_company,
@@ -336,6 +369,202 @@ function classifyIssuance(r) {
     ],
     note: notes.join(' · '),
   };
+}
+
+// ─── 사유 수집 (슬랙·CRM) ───
+// 판정된 법인마다 내부 커뮤니케이션 기록에서 사유를 찾아 재판정한다.
+// - 슬랙: 사용자 토큰(SLACK_USER_TOKEN)이 있으면 search.messages로 전 채널 검색,
+//   없으면 봇이 읽을 수 있는 #bot-법인카드_한도상향신청정보만 본다.
+// - CRM: ods_stream_crm.contact 최근 컨택 중 한도·보증금 관련 내용
+const REASON_LOOKBACK_DAYS = 180; // 슬랙
+const CRM_LOOKBACK_DAYS = 365; // 보증금 반환 요청은 오래된 건도 있어 길게
+const LIMIT_UP_CHANNEL = 'C04HH37DZM3'; // #bot-법인카드_한도상향신청정보
+const userSlack = process.env.SLACK_USER_TOKEN ? new WebClient(process.env.SLACK_USER_TOKEN) : null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const coreName = (n) => String(n || '').replace(/\(.*?\)/g, '').replace(/주식회사|유한회사|\(주\)|㈜|법무법인|농업회사법인/g, '').trim();
+const fmtBzno = (b) => `${b.slice(0, 3)}-${b.slice(3, 5)}-${b.slice(5)}`;
+const toAmount = (str) => (str ? Number(String(str).replace(/[^\d]/g, '')) : null);
+const daysSinceDate = (d) => Math.floor((Date.now() - new Date(`${d}T00:00:00+09:00`).getTime()) / 86400000);
+// 슬랙 마크업(멘션·인용·코드) 제거 후 자르기
+const clip = (t, n = 120) => String(t || '')
+  .replace(/<!subteam\^[^>]+>|<@[^>]+>|<!here>|<!channel>/g, '')
+  .replace(/<(https?:[^|>]+)\|([^>]+)>/g, '$2')
+  .replace(/&gt;|>|`|\*/g, ' ')
+  .replace(/\s+/g, ' ').trim().slice(0, n);
+const REFUND_GRACE_DAYS = 7; // 보증금 반환은 영업일 3~4일 소요 → 요청 후 7일까지는 진행 중으로 본다
+// 여러 법인을 한꺼번에 나열하는 리포트성 메시지는 사유로 쓰지 않는다
+const BULK_MSG = /Daily Report|현황\(|위험 법인 발생|확인 필요 건|이메일 발송|문자 발송|최종 계좌잔고|담당 \d+건|조정예정 스케줄/;
+
+function normCard(t) {
+  if (/롯데|LOTTE/.test(t)) return 'LOTTE';
+  if (/신한|SHINHAN/.test(t)) return 'SHINHAN';
+  if (/비씨|BC/.test(t)) return 'BC';
+  if (/국민|KB/.test(t)) return 'KB';
+  return null;
+}
+
+// 메시지가 이 법인 얘기인지: 사업자번호가 있거나, 법인명이 단어 경계로 등장
+function mentionsCorp(text, corp) {
+  if (text.includes(corp.bzno) || text.includes(fmtBzno(corp.bzno))) return true;
+  // 다른 사업자번호가 적힌 메시지는 이름이 비슷해도 다른 법인 (예: '엔엠' vs '더씨엔엠')
+  if (/\d{3}-\d{2}-\d{5}|\(\d{10}\)/.test(text)) return false;
+  const core = coreName(corp.corp_name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return core.length >= 2 && new RegExp(`(^|[^가-힣])${core}([^가-힣]|$)`).test(text);
+}
+
+// 슬랙 메시지 → 사유 이벤트
+function parseEvent(raw, date, link) {
+  const t = String(raw || '').replace(/&gt;/g, '>').replace(/\*/g, '').replace(/\s+/g, ' ');
+  const base = { date, link, text: clip(t, 160) };
+  const structured = /한도 하향 신청|한도조정예정|심사 결과|부여 한도/.test(t);
+  if (!structured && (BULK_MSG.test(t) || t.length > 500)) return null;
+  if (/한도 하향 신청|한도조정예정/.test(t)) {
+    const m = t.match(/하향 한도:\s*([\d,]+)원/) || t.match(/[\d,]+\s*→\s*([\d,]+)/);
+    const why = (t.match(/(?:하향 사유|사유):\s*([^\s·>]+)/) || [])[1] || '';
+    return { ...base, type: 'DEC', card: normCard((t.match(/카드사:\s*(\S+)/) || [])[1] || t), to: toAmount(m && m[1]), why, offset: /상계/.test(t) };
+  }
+  // 상향 심사완료 봇 메시지는 본문에 제목이 없고 '심사 결과 … 부여 한도'만 있음
+  if (/한도상향 심사완료/.test(t) || (/심사 결과/.test(t) && /부여 한도/.test(t) && /APPROVAL/.test(t))) {
+    const m = t.match(/부여 한도:\s*([\d,]+)/);
+    return { ...base, type: 'UP', card: normCard((t.match(/카드사:\s*(\S+)/) || [])[1] || ''), to: toAmount(m && m[1]) };
+  }
+  if (/보증금/.test(t) && /반환\s*완료|상계/.test(t)) return { ...base, type: 'REFUND_DONE' };
+  if (/보증금/.test(t) && /반환/.test(t) && /요청|기안|상신/.test(t)) return { ...base, type: 'REFUND_REQ' };
+  if (/해지|탈회|철회|드랍/.test(t)) return { ...base, type: 'EXIT' };
+  if (/한도|보증금/.test(t)) return { ...base, type: 'NOTE' };
+  return null;
+}
+
+const kstDateOfTs = (ts) => new Date(Number(ts) * 1000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+
+async function collectSlackEvents(corps) {
+  const events = new Map(corps.map((c) => [c.bzno, []]));
+  const after = new Date(Date.now() - REASON_LOOKBACK_DAYS * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  if (userSlack) {
+    for (const c of corps) {
+      try {
+        const res = await userSlack.search.messages({ query: `"${coreName(c.corp_name)}" after:${after}`, sort: 'timestamp', sort_dir: 'desc', count: 30 });
+        for (const m of res.messages?.matches || []) {
+          if (m.username === BOT_USERNAME || /한도 정합성/.test(m.text || '')) continue;
+          if (!mentionsCorp(m.text || '', c)) continue;
+          const ev = parseEvent(m.text, kstDateOfTs(m.ts), m.permalink);
+          if (ev) events.get(c.bzno).push(ev);
+        }
+      } catch (err) {
+        console.error(`[Slack] ${c.corp_name} 검색 실패: ${err.data?.error || err.message}`);
+      }
+      await sleep(3200); // search.messages Tier 2 (~20회/분)
+    }
+    return { events, source: '슬랙 전체 검색' };
+  }
+  // 폴백: 봇이 읽을 수 있는 상향 심사 채널만
+  let cursor;
+  const oldest = String(Date.now() / 1000 - REASON_LOOKBACK_DAYS * 86400);
+  do {
+    const res = await slack.conversations.history({ channel: LIMIT_UP_CHANNEL, oldest, limit: 200, cursor });
+    for (const m of res.messages || []) {
+      for (const c of corps) {
+        if (!mentionsCorp(m.text || '', c)) continue;
+        const ev = parseEvent(m.text, kstDateOfTs(m.ts), `https://gowid.slack.com/archives/${LIMIT_UP_CHANNEL}/p${m.ts.replace('.', '')}`);
+        if (ev) events.get(c.bzno).push(ev);
+      }
+    }
+    cursor = res.response_metadata?.next_cursor;
+  } while (cursor);
+  return { events, source: '상향 심사 채널(봇)' };
+}
+
+async function collectCrm(bznos) {
+  if (!bznos.length) return new Map();
+  const [rows] = await bq.query({
+    location: LOCATION,
+    params: { b: bznos.map(Number) },
+    query: `
+      WITH m AS (SELECT corp_id, gowid_corp_idx FROM \`gowid-prd.dw_dimension.corporation\` WHERE corp_id IN UNNEST(@b))
+      SELECT CAST(COALESCE(m1.corp_id, m2.corp_id) AS STRING) AS bzno,
+        CAST(DATE(c.contacted_at) AS STRING) AS d, c.content
+      FROM \`gowid-prd.ods_stream_crm.contact\` c
+      LEFT JOIN m m1 ON c.idx_corp_id = m1.corp_id
+      LEFT JOIN m m2 ON c.idx_corp_id = m2.gowid_corp_idx
+      WHERE c.is_deleted = 0 AND COALESCE(m1.corp_id, m2.corp_id) IS NOT NULL
+        AND c.contacted_at >= DATETIME_SUB(CURRENT_DATETIME('Asia/Seoul'), INTERVAL ${CRM_LOOKBACK_DAYS} DAY)
+        AND REGEXP_CONTAINS(c.content, r'한도|보증금|해지|탈회|반환|부결|하향|상향|연체|상계|철회')
+      ORDER BY c.contacted_at DESC`,
+  });
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.bzno)) map.set(r.bzno, []);
+    const t = String(r.content || '');
+    const type = /보증금/.test(t) && /반환\s*완료|상계/.test(t) ? 'REFUND_DONE'
+      : /보증금[^.]{0,40}반환/.test(t) ? 'REFUND_REQ'
+        : /해지|탈회|철회/.test(t) ? 'EXIT' : 'NOTE';
+    map.get(r.bzno).push({ type, date: r.d, text: clip(t, 160), link: '', src: 'CRM' });
+  }
+  return map;
+}
+
+// 사유를 붙이고 판정을 다시 매긴다
+function applyReasons(it, slackEvents, crmEvents) {
+  const evs = [...(slackEvents || []), ...(crmEvents || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const sameCard = (e) => !e.card || it.tab === 'deposit' || e.card === it.card_company;
+  const pick = (type) => evs.find((e) => e.type === type && sameCard(e));
+  const setReason = (e, prefix = '') => {
+    if (!e) return;
+    it.reason = `${prefix}${e.date} ${e.src === 'CRM' ? '[CRM] ' : ''}${e.text}`;
+    it.reasonLink = e.link || '';
+  };
+  const explain = (e, why) => { it.code = 'EXPLAINED'; it.note = `${why} · 원판정: ${it.note}`; setReason(e); };
+  const { raw } = it;
+
+  if (it.tab === 'issuance') {
+    const dec = pick('DEC');
+    const up = pick('UP');
+    const exit = pick('EXIT');
+    if (dec && dec.to !== null) {
+      if ((raw.dwTotal ?? 0) === dec.to) return explain(dec, `${dec.why || ''} 하향 신청 반영됨`.trim());
+      if (raw.clCur === dec.to) {
+        it.code = 'DEC_NOT_APPLIED';
+        it.note = `${dec.date} 하향 신청(${dec.why || '사유 미기재'}) → ${fmtAmt(dec.to)} · 내부는 반영, 카드사는 ${fmtAmt(raw.dwTotal)} 그대로`;
+        return setReason(dec);
+      }
+    }
+    if (up && up.to === raw.clCur && daysSinceDate(up.date) <= 5) return explain(up, '상향 승인 직후 카드사 반영 대기');
+    if (exit && ['ISS_ZERO', 'NOT_REFLECTED'].includes(it.code)) return explain(exit, '해지·탈회·철회 관련 대화 있음');
+    return setReason(dec || up || exit || evs.find((e) => e.src === 'CRM') || evs[0]);
+  }
+
+  // 보증금
+  const done = evs.find((e) => e.type === 'REFUND_DONE' || e.offset);
+  const req = evs.find((e) => e.type === 'REFUND_REQ');
+  if (['DEP_ZERO', 'DEP_UNREFUNDED'].includes(it.code) && raw.bal > 0) {
+    if (done) {
+      it.code = 'DEP_REFUND_UNRECORDED';
+      it.note = `${done.date} 반환·상계 처리 기록 있음 · 시스템 보증금 잔액 ${fmtAmt(raw.bal)} 그대로`;
+      return setReason(done);
+    }
+    if (req && daysSinceDate(req.date) <= REFUND_GRACE_DAYS) {
+      it.code = 'EXPLAINED';
+      it.note = `${req.date} 보증금 반환 진행 중 (${daysSinceDate(req.date)}일 차) · 원판정: ${it.note}`;
+      return setReason(req);
+    }
+    if (req) {
+      it.code = 'DEP_REFUND_PENDING';
+      it.note = `${req.date} 반환 요청 후 ${daysSinceDate(req.date)}일 경과 · 보증금 잔액 ${fmtAmt(raw.bal)}`;
+      return setReason(req);
+    }
+  }
+  if (it.code === 'OVER_DEP' && it.codes.length === 1) {
+    const up = evs.find((e) => e.type === 'UP');
+    if (up) return explain(up, `일반 한도 상향 승인(${up.card || ''} ${fmtAmt(up.to)})`);
+  }
+  return setReason(done || req || evs.find((e) => e.src === 'CRM') || evs[0]);
+}
+
+async function attachReasons(items) {
+  const corps = [...new Map(items.map((it) => [it.bzno, { bzno: it.bzno, corp_name: it.corp_name }])).values()];
+  const [{ events, source }, crm] = await Promise.all([collectSlackEvents(corps), collectCrm(corps.map((c) => c.bzno))]);
+  for (const it of items) applyReasons(it, events.get(it.bzno), crm.get(it.bzno));
+  return source;
 }
 
 // ─── Utils ───
@@ -376,15 +605,15 @@ const TABS = {
     rowKey: (row) => row[3],
     headers: ['최초감지일', '판정', '법인명', '사업자번호', '카드사별 내부한도',
       '계약값(승인보증금)', '계약서', '입금액', '보증금잔액', '내부한도 합계', '카드사한도 합계', '보증금 입금일',
-      '상세', '진척사항', '메모'],
+      '상세', '사유(슬랙·CRM 자동)', '근거 링크', '진척사항', '메모'],
     money: [5, 7, 8, 9, 10],
   },
   issuance: {
     name: '발급',
     rowKey: (row) => `${row[3]}|${row[4]}`,
     headers: ['최초감지일', '판정', '법인명', '사업자번호', '카드사',
-      '발급일', '발급 승인한도', '내부 승인한도', '내부 현재한도', '카드사 현재한도', '카드사 마지막 정상일', '마지막 감액일',
-      '상세', '진척사항', '메모'],
+      '발급일', '발급 승인한도(카드사 확정)', '내부 승인한도', '내부 현재한도', '카드사 현재한도', '카드사 마지막 정상일', '마지막 감액일',
+      '상세', '사유(슬랙·CRM 자동)', '근거 링크', '진척사항', '메모'],
     money: [6, 7, 8, 9],
   },
 };
@@ -409,13 +638,16 @@ async function ensureTab(name, sheetMap) {
 }
 
 async function readTab(name) {
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${name}'!A2:Z` });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${name}'!A1:Z` });
   return res.data.values || [];
 }
 
 // 기존 행 → 매칭 키별 { firstSeen, code, corp_name, card_company, manual }
-function indexExisting(tab, rows) {
-  const n = tab.headers.length;
+// 수기 열(진척사항·메모)은 헤더 이름으로 찾는다 — 열 구성이 바뀌어도 수기 입력이 밀리지 않게
+function indexExisting(tab, values) {
+  const [header = [], ...rows] = values;
+  const progIdx = header.indexOf('진척사항');
+  const memoIdx = header.indexOf('메모');
   const map = new Map();
   for (const row of rows) {
     if (!row[3]) continue;
@@ -425,7 +657,7 @@ function indexExisting(tab, rows) {
       corp_name: row[2] || '',
       bzno: row[3],
       card_company: row[4] || '',
-      manual: [row[n - 2] || '', row[n - 1] || ''],
+      manual: [progIdx >= 0 ? row[progIdx] || '' : '', memoIdx >= 0 ? row[memoIdx] || '' : ''],
     });
   }
   return map;
@@ -438,7 +670,7 @@ async function writeTab(tab, sheetId, items, existing, today) {
     const firstSeen = prev ? prev.firstSeen : today;
     const manual = prev ? prev.manual : ['', ''];
     return [firstSeen, CODES[it.code].label, it.corp_name, it.bzno, it.card_company,
-      ...it.cells.map((v) => (v === null || v === undefined ? '' : v)), it.note, ...manual];
+      ...it.cells.map((v) => (v === null || v === undefined ? '' : v)), it.note, it.reason || '', it.reasonLink || '', ...manual];
   });
 
   await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: `'${tab.name}'!A:Z` });
@@ -518,7 +750,12 @@ async function writeGuide(sheetId, dwDate) {
     [''],
     ['[발급 탭] 발급 시 승인한도 = 현재 한도'],
     ['대상', `최근 ${ISSUE_LOOKBACK_DAYS}일 발급분은 발급 승인한도와 대조, 전체 발급 법인은 내부한도와 카드사한도 대조`],
-    ['제외', '발급 이후 시스템/수동 감액(LimitDecrease 성공) 기록이 있는 변동, 1만원 플레이스홀더, 해지 카드'],
+    ['발급 승인한도', '발급일 카드사가 확정한 승인값 (CardLimit 기록). 고객 신청 한도가 아님'],
+    ['제외', '발급 이후 감액(LimitDecrease 성공) 기록이 있는 변동, 1만원 플레이스홀더, 해지 카드, 삼성(제휴 중단), BC 소폭 감소(카드별 한도 합 구조)'],
+    [''],
+    ['[사유 열] 슬랙·CRM 자동 수집'],
+    ['출처', `슬랙 검색(최근 ${REASON_LOOKBACK_DAYS}일: 한도 하향 신청·상향 심사완료·보증금 반환/상계·해지/탈회/철회) + CRM 컨택(최근 ${CRM_LOOKBACK_DAYS}일)`],
+    ['재판정', '사유가 확인되면 ⚪로 내려 알림에서 빼고 시트에만 남김. 하향 신청 후 카드사가 그대로면 🔴 하향신청 카드사 미반영'],
     [''],
     ['판정', '의미 / 조치'],
     [CODES.ISS_ZERO.label, '발급 승인됐는데 현재 0원이고 감액 기록 없음 → 카드 사용 불가. 최우선 확인'],
@@ -527,9 +764,13 @@ async function writeGuide(sheetId, dwDate) {
     [CODES.NO_FILE.label, '보증금 승인됐는데 계약서 파일이 시스템에 없음'],
     [CODES.NOT_REFLECTED.label, '발급 3일 지났는데 카드사 한도 데이터가 없음'],
     [CODES.ISS_DROP.label, '발급 승인보다 현재 한도가 낮고 감액 기록 없음'],
+    [CODES.DEC_NOT_APPLIED.label, '슬랙에 한도 하향 신청이 있고 내부는 반영됐는데 카드사 한도는 그대로 → 카드사 처리 확인 (리스크 노출)'],
     [CODES.DEP_UNREFUNDED.label, '탈회했는데 보증금 잔액이 남아 있음 → 반환 처리 누락 확인'],
+    [CODES.DEP_REFUND_UNRECORDED.label, '슬랙·CRM상 반환/상계는 끝났는데 시스템 보증금 잔액이 남아 있음 → DepositManagement 기록 정리'],
+    [CODES.DEP_REFUND_PENDING.label, `보증금 반환 요청 후 ${REFUND_GRACE_DAYS}일 넘게 시스템 잔액 그대로 → 반환 진행 여부 확인`],
     [CODES.DEP_IN_DIFF.label, '계약 금액과 입금 기록 금액이 다름'],
     [CODES.OVER_DEP.label, '한도가 보증금 잔액보다 큼 — 일반 신용한도가 함께 부여된 경우면 정상'],
+    [CODES.EXPLAINED.label, '슬랙·CRM에서 사유가 확인된 건 (상향 승인, 하향 반영, 해지·탈회, 반환 진행 중). 알림 제외, 사유 열 확인'],
     [''],
     ['해소 탭', '전날까지 있다가 사라진 건이 해소일과 함께 자동 이동 (진척사항·메모 보존)'],
   ];
@@ -581,12 +822,13 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
   const today = todayKstDate();
   const countBy = (items) => {
     const m = {};
-    for (const it of items) m[it.code] = (m[it.code] || 0) + 1;
+    for (const it of items) if (it.code !== 'EXPLAINED') m[it.code] = (m[it.code] || 0) + 1;
     return Object.entries(m).sort((a, b) => CODES[a[0]].sev - CODES[b[0]].sev)
       .map(([c, n]) => `${CODES[c].label} ${n}`).join('  ·  ') || '이상 없음 :white_check_mark:';
   };
-  const line = (it) => `${it.isNew ? ':new: ' : ''}*${it.corp_name}* ${it.card_company !== '-' && !it.card_company.includes(':') ? `(${it.card_company}) ` : ''}— ${it.note}`;
-  const urgent = (items) => items.filter((it) => it.isNew || CODES[it.code].sev <= 2); // 신규 + 🔴 전체
+  const line = (it) => `${it.isNew ? ':new: ' : ''}*${it.corp_name}* ${it.tab === 'issuance' ? `(${it.card_company}) ` : ''}— ${it.note}` +
+    (it.reasonLink ? ` <${it.reasonLink}|근거>` : '');
+  const urgent = (items) => items.filter((it) => it.code !== 'EXPLAINED' && (it.isNew || CODES[it.code].sev <= 2)); // 신규 + 🔴 전체
 
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `:mag: 한도 정합성 점검 (${today.slice(5).replace('-', '/')})` } },
@@ -603,7 +845,7 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
   }
   blocks.push({
     type: 'context',
-    elements: [{ type: 'mrkdwn', text: `<${SHEET_URL}|전체 목록·진척 관리 시트>  ·  어제 대비 해소 ${resolvedCount}건  ·  카드사 한도 기준일 ${dwDate}` }],
+    elements: [{ type: 'mrkdwn', text: `<${SHEET_URL}|전체 목록·진척 관리 시트>  ·  ⚪ 슬랙·CRM에서 사유 확인되어 알림 제외 ${[...depItems, ...issItems].filter((it) => it.code === 'EXPLAINED').length}건  ·  어제 대비 해소 ${resolvedCount}건  ·  카드사 한도 기준일 ${dwDate}` }],
   });
   return blocks;
 }
@@ -641,15 +883,20 @@ async function main() {
   console.log('📥 BigQuery 조회 중...');
   const [depRows, issRows] = await Promise.all([fetchDeposit(), fetchIssuance()]);
   const dwDate = depRows[0]?.dw_date || issRows[0]?.dw_date || '-';
-  const depItems = sortItems(depRows.map(classifyDeposit).filter(Boolean));
-  const issItems = sortItems(issRows.map(classifyIssuance).filter(Boolean));
+  const depItems = depRows.map(classifyDeposit).filter(Boolean);
+  const issItems = issRows.map(classifyIssuance).filter(Boolean);
+  console.log(`🔎 사유 수집 중 (판정 ${depItems.length + issItems.length}건)...`);
+  const reasonSource = await attachReasons([...depItems, ...issItems]);
+  console.log(`사유 출처: ${reasonSource} + CRM`);
+  sortItems(depItems);
+  sortItems(issItems);
   console.log(`보증금: 대상 ${depRows.length}개 법인 → 판정 ${depItems.length}건`);
   console.log(`발급: 대상 ${issRows.length}개 법인×카드사 → 판정 ${issItems.length}건`);
 
   if (DRY_RUN) {
     for (const [title, items] of [['① 보증금', depItems], ['② 발급', issItems]]) {
       console.log(`\n=== ${title} ===`);
-      for (const it of items) console.log(`${CODES[it.code].label}\t${it.corp_name}\t${it.card_company}\t${it.note}`);
+      for (const it of items) console.log(`${CODES[it.code].label}\t${it.corp_name}\t${it.card_company}\t${it.note}${it.reason ? `\n\t\t└ 사유: ${it.reason}` : ''}`);
     }
     console.log('\n=== 슬랙 미리보기 (신규 여부는 시트 대조 전이라 미표시) ===');
     for (const b of buildBlocks(depItems, issItems, 0, dwDate)) {
@@ -666,7 +913,8 @@ async function main() {
 
   if (NO_SLACK) return;
   const blocks = buildBlocks(depItems, issItems, resolvedCount, dwDate);
-  const summary = `한도 정합성 점검: 보증금 ${depItems.length}건, 발급 ${issItems.length}건`;
+  const open = (items) => items.filter((it) => it.code !== 'EXPLAINED').length;
+  const summary = `한도 정합성 점검: 보증금 ${open(depItems)}건, 발급 ${open(issItems)}건`;
   console.log('💬 슬랙 발송 중...');
   await postSlack(blocks, summary);
   console.log('✅ 완료');
