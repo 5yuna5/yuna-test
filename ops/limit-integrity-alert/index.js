@@ -167,6 +167,7 @@ async function fetchDeposit() {
     d.idxCorp AS idx, corp.corp_name, CAST(corp.corp_id AS STRING) AS bzno,
     d.approvedDepositAmount AS contract_amount,
     d.contractFilePath IS NOT NULL AS has_contract_file,
+    d.reviewOpinion AS review_opinion,
     CAST(d.depositDate AS STRING) AS deposit_date,
     dm_app.deposit_in, dm_corp.deposit_balance, IFNULL(dm_corp.has_withdrawal, FALSE) AS has_withdrawal,
     CAST(dm_corp.last_deposit_change_at AS STRING) AS last_deposit_change_at,
@@ -324,7 +325,7 @@ function classifyDeposit(r) {
     tab: 'deposit',
     code: codes[0],
     codes,
-    raw: { bal, lim, contract },
+    raw: { bal, lim, contract, opinion: r.review_opinion || '' },
     corp_name: r.corp_name,
     bzno: r.bzno,
     card_company: r.cl_str || '-',
@@ -637,6 +638,14 @@ function applyReasons(it, slackEvents, crmEvents) {
       return setReason(req);
     }
   }
+  // 보증금 + 예외한도 승인 건 (심사의견에 기록, 예: 위프론티어 '보증금 1백만원, 부여한도 5백만원')
+  if (it.code === 'OVER_DEP' && it.codes.length === 1 && /예외\s*한도|부여\s*한도/.test(raw.opinion)) {
+    it.code = 'EXPLAINED';
+    it.note = `보증금 + 예외한도 승인 (심사의견: ${clip(raw.opinion, 80)}) · 원판정: ${it.note}`;
+    it.reason = clip(raw.opinion, 160);
+    it.reasonLink = (raw.opinion.match(/https:\/\/gowid\.slack\.com\/\S+/) || [''])[0];
+    return;
+  }
   if (it.code === 'OVER_DEP' && it.codes.length === 1) {
     const up = evs.find((e) => e.type === 'UP');
     if (up) return explain(up, `일반 한도 상향 승인(${up.card || ''} ${fmtAmt(up.to)})`);
@@ -822,6 +831,17 @@ async function readResolvedExplainedKeys() {
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${RESOLVED_TAB}'!A2:F` });
   return new Set((res.data.values || []).filter((r) => String(r[2] || '').startsWith('⚪')).map((r) => resolvedKey(r[1], r[4], r[5])));
 }
+// 슬랙 사용자 토큰이 없는 실행(GHA)에선 전체 검색을 못 해서 사유를 놓친다 →
+// 해소 탭에 이미 '⚪ 사유 확인'으로 기록된 건은 그 판정을 이어서 쓴다
+async function readExplainedCache() {
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${RESOLVED_TAB}'!A2:K` });
+  const map = new Map();
+  for (const r of res.data.values || []) {
+    if (!String(r[2] || '').startsWith('⚪')) continue;
+    map.set(resolvedKey(r[1], r[4], r[5]), { date: r[0], reason: r[9] || '', link: r[10] || '' });
+  }
+  return map;
+}
 // 보증금 탭의 카드사 열은 한도 문자열이라 매일 바뀜 → 사업자번호만으로 키를 만든다
 const resolvedKey = (tabName, bzno, cc) => `${tabName}|${bzno}|${tabName === TABS.deposit.name ? '' : cc}`;
 
@@ -1006,6 +1026,21 @@ async function main() {
   console.log(`🔎 사유 수집 중 (판정 ${depItems.length + issItems.length}건)...`);
   const reasonSource = await attachReasons([...depItems, ...issItems]);
   console.log(`사유 출처: ${reasonSource} + CRM`);
+  if (!userSlack) {
+    const cache = await readExplainedCache();
+    let kept = 0;
+    for (const it of [...depItems, ...issItems]) {
+      if (it.code === 'EXPLAINED') continue;
+      const tabName = it.tab === 'deposit' ? TABS.deposit.name : TABS.issuance.name;
+      const c = cache.get(resolvedKey(tabName, it.bzno, it.card_company));
+      if (!c) continue;
+      it.code = 'EXPLAINED';
+      it.note = `${c.date} 사유 확인 유지 · ${c.reason}`;
+      it.reasonLink = c.link;
+      kept++;
+    }
+    console.log(`슬랙 사용자 토큰 없음 → 해소 탭의 이전 사유 확인 ${kept}건 유지`);
+  }
   sortItems(depItems);
   sortItems(issItems);
   console.log(`보증금: 대상 ${depRows.length}개 법인 → 판정 ${depItems.length}건`);
