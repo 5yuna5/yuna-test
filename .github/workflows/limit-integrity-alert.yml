@@ -59,6 +59,7 @@ jobs:
       - name: Sync sheet + send alert
         if: steps.window.outputs.proceed == 'true'
         working-directory: ops/limit-integrity-alert
-        run: node index.js
+        # 테스트 채널(C019ZSK6NNR) 검수 완료 전까지 슬랙 발송 중지 — 시트만 갱신. 승인 후 --no-slack 제거.
+        run: node index.js --no-slack
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
