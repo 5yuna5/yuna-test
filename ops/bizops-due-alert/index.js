@@ -87,9 +87,12 @@ function linearQuery(query, variables = {}) {
         },
       },
       (res) => {
-        let body = '';
-        res.on('data', (c) => { body += c; });
+        // 청크를 Buffer로 모은 뒤 한 번에 디코딩 — 문자열로 바로 이어붙이면
+        // 청크 경계에서 한글(UTF-8 3바이트)이 잘려 '�'로 깨짐
+        const chunks = [];
+        res.on('data', (c) => { chunks.push(c); });
         res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
           if (res.statusCode && res.statusCode >= 400) {
             reject(new Error(`[bizops-due-alert] Linear HTTP ${res.statusCode}: ${body.slice(0, 200)}`));
             return;
