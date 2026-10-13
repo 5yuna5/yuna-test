@@ -147,12 +147,14 @@ async function fetchDeposit() {
     SELECT idxCorp,
       ARRAY_AGG(depositAmount ORDER BY createdAt DESC, idx DESC LIMIT 1)[OFFSET(0)] AS deposit_balance,
       LOGICAL_OR(depositType != 'DEPOSIT') AS has_withdrawal,
+      STRING_AGG(remark, ' / ' ORDER BY createdAt DESC LIMIT 3) AS dm_remarks,
       MAX(createdAt) AS last_deposit_change_at
     FROM dmr GROUP BY 1
   ),
   lim AS (
     SELECT cl.idxCorp,
       SUM(cl.cl_current) AS cl_current,
+      MAX(cl.is_issued) AS any_issued,
       STRING_AGG(FORMAT('%s:%t', cl.cardCompany, cl.cl_current), ' / ' ORDER BY cl.cardCompany) AS cl_str,
       MAX(cl.cl_updated_at) AS cl_updated_at
     FROM cl GROUP BY 1
@@ -162,25 +164,28 @@ async function fetchDeposit() {
       STRING_AGG(FORMAT('%s:%t', cc.card_company_code, dw.dw_total), ' / ' ORDER BY cc.card_company_code) AS dw_str
     FROM dw JOIN corp USING (corp_id) JOIN cc USING (card_company_id)
     GROUP BY 1
-  )
+  ),
+  base AS (SELECT idxCorp FROM last_da UNION DISTINCT SELECT idxCorp FROM dm_corp)
   SELECT
-    d.idxCorp AS idx, corp.corp_name, CAST(corp.corp_id AS STRING) AS bzno,
+    b.idxCorp AS idx, corp.corp_name, CAST(corp.corp_id AS STRING) AS bzno,
+    d.id IS NOT NULL AS has_application,
     d.approvedDepositAmount AS contract_amount,
     d.contractFilePath IS NOT NULL AS has_contract_file,
-    d.reviewOpinion AS review_opinion,
+    CONCAT(IFNULL(d.reviewOpinion, ''), ' / ', IFNULL(dm_corp.dm_remarks, '')) AS review_opinion,
     CAST(d.depositDate AS STRING) AS deposit_date,
     dm_app.deposit_in, dm_corp.deposit_balance, IFNULL(dm_corp.has_withdrawal, FALSE) AS has_withdrawal,
     CAST(dm_corp.last_deposit_change_at AS STRING) AS last_deposit_change_at,
-    lim.cl_current, lim.cl_str, CAST(lim.cl_updated_at AS STRING) AS cl_updated_at,
+    lim.cl_current, lim.cl_str, IFNULL(lim.any_issued, 0) AS any_issued, CAST(lim.cl_updated_at AS STRING) AS cl_updated_at,
     dwc.dw_total, dwc.dw_str,
-    d.idxCorp IN (SELECT idx FROM deleted) AS is_deleted,
+    b.idxCorp IN (SELECT idx FROM deleted) AS is_deleted,
     CAST((SELECT d FROM dwd) AS STRING) AS dw_date
-  FROM last_da d
-  JOIN corp ON corp.gowid_corp_idx = d.idxCorp
+  FROM base b
+  LEFT JOIN last_da d ON d.idxCorp = b.idxCorp
+  JOIN corp ON corp.gowid_corp_idx = b.idxCorp
   LEFT JOIN dm_app ON dm_app.depositApplicationId = d.id
-  LEFT JOIN dm_corp ON dm_corp.idxCorp = d.idxCorp
-  LEFT JOIN lim ON lim.idxCorp = d.idxCorp
-  LEFT JOIN dwc ON dwc.idxCorp = d.idxCorp
+  LEFT JOIN dm_corp ON dm_corp.idxCorp = b.idxCorp
+  LEFT JOIN lim ON lim.idxCorp = b.idxCorp
+  LEFT JOIN dwc ON dwc.idxCorp = b.idxCorp
   `);
 }
 
@@ -294,24 +299,22 @@ function classifyDeposit(r) {
     codes.push('DEP_UNREFUNDED');
     notes.push(`탈회 법인인데 보증금 ${fmtAmt(bal)} 잔액 남음 — 반환 처리 확인`);
   }
+  const preIssue = !Number(r.any_issued) && hoursSince(r.last_deposit_change_at) < 90 * 24;
+  if (bal > 0 && lim === 0 && !r.is_deleted && preIssue) return null; // 카드 발급 전 입회 진행 중 (예: 율믹스 10/8 접수)
   if (bal > 0 && lim === 0 && !r.is_deleted) {
     codes.push('DEP_ZERO');
     notes.push(`보증금 ${fmtAmt(bal)} 보유 중인데 한도 0원`);
   }
-  // 입금/한도 변경 직후 1일은 카드사 반영 대기로 보고 유예
-  const recentChange = hoursSince(r.last_deposit_change_at) < 24 || hoursSince(r.cl_updated_at) < 24;
-  if (lim > 0 && (dwTotal ?? 0) !== lim && !recentChange) {
-    codes.push('MISMATCH');
-    notes.push(`내부 ${fmtAmt(lim)} vs 카드사 ${fmtAmt(dwTotal ?? 0)}`);
-  }
-  if (!r.has_contract_file) {
+  // 내부≠카드사 비교는 발급 탭(카드사별)에서 본다 — 여기서 하면 합계 기준이라 중복·오탐(임시한도 등)
+  if (!r.has_application) notes.push('보증금 신청 기록 없이 입출금 내역에만 있음');
+  if (r.has_application && !r.has_contract_file) {
     codes.push('NO_FILE');
     notes.push('DepositApplication 계약서 파일 없음');
   }
   // 입금은 법인 단위 보증금 잔액으로 본다. 같은 법인이 보증금 신청을 여러 번 하면 입금이 이전 신청 건에
   // 연결돼 있을 수 있어서(예: 케이이음 3/11 신청 건으로 입금, 8/5 신청 건엔 연결 없음) 신청 건 단위로 보면 오판한다.
   // 잔액이 계약값보다 크면 추가 입금(정상)이므로 작을 때만 본다.
-  if (!r.is_deleted && !r.has_withdrawal && bal < contract) {
+  if (r.has_application && !r.is_deleted && !r.has_withdrawal && bal < contract) {
     codes.push('DEP_IN_DIFF');
     notes.push(`계약 ${fmtAmt(contract)} vs 보증금 잔액 ${fmtAmt(bal)}`);
   }
@@ -382,7 +385,7 @@ function classifyIssuance(r) {
     tab: 'issuance',
     code: codes[0],
     codes,
-    raw: { clCur, dwTotal, issued, clApproved: num(r.cl_approved), cardCnt: num(r.card_cnt) || 0, validCnt: num(r.valid_cnt) || 0, lastClosed: r.last_closed },
+    raw: { clCur, dwTotal, issued, lastDecrease: r.last_decrease_date || '', clApproved: num(r.cl_approved), cardCnt: num(r.card_cnt) || 0, validCnt: num(r.valid_cnt) || 0, lastClosed: r.last_closed },
     corp_name: r.corp_name,
     bzno: r.bzno,
     card_company: r.card_company,
@@ -415,7 +418,9 @@ const clip = (t, n = 120) => String(t || '')
   .replace(/<(https?:[^|>]+)\|([^>]+)>/g, '$2')
   .replace(/&gt;|>|`|\*/g, ' ')
   .replace(/\s+/g, ' ').trim().slice(0, n);
-const REFUND_GRACE_DAYS = 7; // 보증금 반환은 영업일 3~4일 소요 → 요청 후 7일까지는 진행 중으로 본다
+const REFUND_GRACE_DAYS = 7;
+// 보증금은 1:1이 기본. 예외 배수(1:2 등)·예외한도는 내부 결정 기록이 있을 때만 정상으로 본다
+const DEP_EXCEPTION_RE = /보증금[^\n]{0,80}(1\s*:\s*[2-9]|[2-9]\s*배|배수|예외\s*한도|부여\s*한도|거치[^\n]{0,30}한도)|(1\s*:\s*[2-9]|예외\s*한도)[^\n]{0,80}보증금/; // 보증금 반환은 영업일 3~4일 소요 → 요청 후 7일까지는 진행 중으로 본다
 // 여러 법인을 한꺼번에 나열하는 리포트성 메시지는 사유로 쓰지 않는다
 const BULK_MSG = /Daily Report|현황\(|위험 법인 발생|확인 필요 건|이메일 발송|문자 발송|최종 계좌잔고|담당 \d+건|조정예정 스케줄/;
 
@@ -461,6 +466,7 @@ function parseEvent(raw, date, link) {
   }
   if (/승인 완료 알림/.test(t)) return { ...base, type: 'ISSUED', card: normCard((t.match(/카드종류:\s*(\S+)/) || [])[1] || '') };
   if (/보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t)) return { ...base, type: 'REFUND_DONE' };
+  if (DEP_EXCEPTION_RE.test(t)) return { ...base, type: 'DEP_EXCEPTION' };
   if (/보증금/.test(t) && /반환/.test(t) && /요청|기안|상신/.test(t)) return { ...base, type: 'REFUND_REQ' };
   if (/해지|탈회|철회|드랍/.test(t)) return { ...base, type: 'EXIT' };
   if (/한도|보증금/.test(t)) return { ...base, type: 'NOTE' };
@@ -561,6 +567,7 @@ async function collectCrm(bznos) {
     if (!map.has(r.bzno)) map.set(r.bzno, []);
     const t = String(r.content || '');
     const type = /임시\s*한도|임시기간/.test(t) ? 'TEMP'
+      : DEP_EXCEPTION_RE.test(t) ? 'DEP_EXCEPTION'
       : /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t) ? 'REFUND_DONE'
       : /보증금[^.]{0,40}반환/.test(t) ? 'REFUND_REQ'
         : /해지|탈회|철회/.test(t) ? 'EXIT' : 'NOTE';
@@ -589,6 +596,9 @@ function applyReasons(it, slackEvents, crmEvents) {
     const exit = pick('EXIT');
     if (dec && dec.to !== null) {
       if ((raw.dwTotal ?? 0) === dec.to) return explain(dec, `${dec.why || ''} 하향 신청 반영됨`.trim());
+      if (raw.clCur === dec.to && raw.lastDecrease && raw.lastDecrease >= dec.date) {
+        return explain(dec, `${dec.date} 하향(${dec.why || '-'}) 처리 완료 기록 있음 — 카드사 데이터(${fmtAmt(raw.dwTotal)}) 미갱신`);
+      }
       if (raw.clCur === dec.to) {
         it.code = 'DEC_NOT_APPLIED';
         it.note = `${dec.date} 하향 신청(${dec.why || '사유 미기재'}) → ${fmtAmt(dec.to)} · 내부는 반영, 카드사는 ${fmtAmt(raw.dwTotal)} 그대로`;
@@ -639,7 +649,7 @@ function applyReasons(it, slackEvents, crmEvents) {
     }
   }
   // 보증금 + 예외한도 승인 건 (심사의견에 기록, 예: 위프론티어 '보증금 1백만원, 부여한도 5백만원')
-  if (it.code === 'OVER_DEP' && it.codes.length === 1 && /예외\s*한도|부여\s*한도/.test(raw.opinion)) {
+  if (it.code === 'OVER_DEP' && it.codes.length === 1 && (/예외\s*한도|부여\s*한도/.test(raw.opinion) || DEP_EXCEPTION_RE.test(raw.opinion))) {
     it.code = 'EXPLAINED';
     it.note = `보증금 + 예외한도 승인 (심사의견: ${clip(raw.opinion, 80)}) · 원판정: ${it.note}`;
     it.reason = clip(raw.opinion, 160);
@@ -647,6 +657,8 @@ function applyReasons(it, slackEvents, crmEvents) {
     return;
   }
   if (it.code === 'OVER_DEP' && it.codes.length === 1) {
+    const exc = evs.find((e) => e.type === 'DEP_EXCEPTION');
+    if (exc) return explain(exc, '보증금 예외 배수·예외한도 내부 결정 기록 있음');
     const up = evs.find((e) => e.type === 'UP');
     if (up) return explain(up, `일반 한도 상향 승인(${up.card || ''} ${fmtAmt(up.to)})`);
   }
