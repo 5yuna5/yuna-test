@@ -2,7 +2,7 @@
 /**
  * BizOps 마감/기한초과 미완료 알림 봇 (v1)
  *
- * - 매일 11:00 KST에 Linear "BizOps" 팀에서 dueDate가 오늘(KST) 이하이고
+ * - 매일 11:00 KST(GitHub Actions bizops-due-alert.yml)에 Linear "BizOps" 팀에서 dueDate가 오늘(KST) 이하이고
  *   미완료(state.type ∉ {completed, canceled})인 이슈를 모아 두 섹션으로 발송:
  *     🔴 기한 초과(dueDate < 오늘) — 가장 오래 지난 순, D+N 표기
  *     📌 오늘 마감(dueDate == 오늘) — 담당자별 그룹
@@ -18,8 +18,10 @@
  *   node index.js --force      # 멱등 가드 무시하고 강제 재발송
  */
 
+// 로컬 실행용 .env (GitHub Actions에서는 파일이 없어 조용히 건너뜀 → 시크릿 env 사용)
 require('dotenv').config({
   path: '/Users/gowid/yuna-test/pm/context/card/operations/crm-slack-bot/.env',
+  quiet: true,
 });
 
 const https = require('https');
@@ -61,6 +63,11 @@ function daysBetween(fromYmd, toYmd) {
 let _apiKey = null;
 function getLinearKey() {
   if (_apiKey) return _apiKey;
+  // GitHub Actions: 시크릿 LINEAR_API_KEY 환경변수 / 로컬: macOS keychain
+  if (process.env.LINEAR_API_KEY) {
+    _apiKey = process.env.LINEAR_API_KEY.trim();
+    return _apiKey;
+  }
   try {
     _apiKey = execSync('security find-generic-password -s "linear-api-key" -w', {
       encoding: 'utf-8',

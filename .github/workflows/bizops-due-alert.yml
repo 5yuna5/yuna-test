@@ -1,0 +1,67 @@
+name: BizOps Due Alert
+
+on:
+  schedule:
+    # 안전망: 4개 분산 (GitHub Actions 저빈도 cron 지연 대비). 중복 발송은 index.js 멱등 가드가 막음.
+    - cron: '0 2 * * *'   # KST 11:00
+    - cron: '15 2 * * *'  # KST 11:15
+    - cron: '30 2 * * *'  # KST 11:30
+    - cron: '45 2 * * *'  # KST 11:45
+  workflow_run:
+    # 매시간 fire되는 Update Dashboard Data 완료 후 piggyback (card-pending-alert와 동일 패턴)
+    workflows: ["Update Dashboard Data"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Slack 미발송 미리보기만'
+        type: boolean
+        default: false
+
+# 여러 트리거가 동시에 떠도 멱등 가드가 경쟁하지 않도록 직렬화
+concurrency:
+  group: bizops-due-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Time window guard (workflow_run only)
+        id: window
+        run: |
+          # workflow_run는 매시간 트리거됨 → KST 11~12시(UTC 02~03) 윈도우 밖이면 종료
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            HOUR=$(date -u +%H)
+            case "$HOUR" in
+              02|03) echo "proceed=true" >> $GITHUB_OUTPUT ;;
+              *) echo "proceed=false" >> $GITHUB_OUTPUT; echo "✗ outside KST 11-12 window (UTC=$HOUR), skipping" ;;
+            esac
+          else
+            echo "proceed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.window.outputs.proceed == 'true'
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        if: steps.window.outputs.proceed == 'true'
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        if: steps.window.outputs.proceed == 'true'
+        working-directory: ops/bizops-due-alert
+        run: npm ci
+
+      - name: Send alert
+        if: steps.window.outputs.proceed == 'true'
+        working-directory: ops/bizops-due-alert
+        run: node index.js ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
