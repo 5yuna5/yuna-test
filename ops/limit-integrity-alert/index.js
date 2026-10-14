@@ -442,6 +442,9 @@ function mentionsCorp(text, corp) {
   return core.length >= 2 && new RegExp(`(^|[^가-힣])${core}`).test(text);
 }
 
+// 묻는 글은 사실 근거가 아니다 — "반환완료 된 걸까요?", "탈회 하신거 아닌가요.." 같은 문장은 완료·탈회로 보지 않는다
+const IS_QUESTION = /[?？]|까요|나요|아닌가요|인가요|인지 /;
+
 // 슬랙 메시지 → 사유 이벤트
 function parseEvent(raw, date, link) {
   const t = String(raw || '').replace(/&gt;/g, '>').replace(/\*/g, '').replace(/\s+/g, ' ');
@@ -465,10 +468,11 @@ function parseEvent(raw, date, link) {
     return { ...base, type: 'TEMP', until };
   }
   if (/승인 완료 알림/.test(t)) return { ...base, type: 'ISSUED', card: normCard((t.match(/카드종류:\s*(\S+)/) || [])[1] || '') };
-  if (/보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t)) return { ...base, type: 'REFUND_DONE' };
+  const asked = IS_QUESTION.test(t);
+  if (!asked && /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t)) return { ...base, type: 'REFUND_DONE' };
   if (DEP_EXCEPTION_RE.test(t)) return { ...base, type: 'DEP_EXCEPTION' };
   if (/보증금/.test(t) && /반환/.test(t) && /요청|기안|상신/.test(t)) return { ...base, type: 'REFUND_REQ' };
-  if (/해지|탈회|철회|드랍/.test(t)) return { ...base, type: 'EXIT' };
+  if (!asked && /해지|탈회|철회|드랍/.test(t)) return { ...base, type: 'EXIT' };
   if (/한도|보증금/.test(t)) return { ...base, type: 'NOTE' };
   return null;
 }
@@ -501,9 +505,17 @@ async function collectSlackEvents(corps) {
       }
     }
     await linkRefundReplies(events);
-    return { events, source: '슬랙 전체 검색' };
+    // 전체 검색은 최신 30건만 보므로 흔한 법인명(예: '가짐')은 상향 승인 봇 글이 밀려 빠진다
+    // → 상향 심사 채널은 토큰과 상관없이 항상 직접 훑는다 (로컬·GHA 결과 일치)
+    await scanUpChannel(corps, events);
+    return { events, source: '슬랙 전체 검색 + 상향 심사 채널' };
   }
-  // 폴백: 봇이 읽을 수 있는 상향 심사 채널만
+  await scanUpChannel(corps, events);
+  return { events, source: '상향 심사 채널(봇)' };
+}
+
+// 봇이 읽을 수 있는 상향 심사 채널 전체를 훑어 법인별 이벤트에 더한다 (같은 링크는 한 번만)
+async function scanUpChannel(corps, events) {
   let cursor;
   const oldest = String(Date.now() / 1000 - REASON_LOOKBACK_DAYS * 86400);
   do {
@@ -512,12 +524,14 @@ async function collectSlackEvents(corps) {
       for (const c of corps) {
         if (!mentionsCorp(m.text || '', c)) continue;
         const ev = parseEvent(m.text, kstDateOfTs(m.ts), `https://gowid.slack.com/archives/${LIMIT_UP_CHANNEL}/p${m.ts.replace('.', '')}`);
-        if (ev) events.get(c.bzno).push(ev);
+        if (!ev) continue;
+        const list = events.get(c.bzno);
+        const id = m.ts.replace('.', '');
+        if (!list.some((e) => String(e.link || '').includes(id))) list.push(ev);
       }
     }
     cursor = res.response_metadata?.next_cursor;
   } while (cursor);
-  return { events, source: '상향 심사 채널(봇)' };
 }
 
 // 보증금 반환 요청 글의 스레드에 달린 "반환 완료" 답글 연결.
@@ -531,7 +545,7 @@ async function linkRefundReplies(events) {
         try {
           const res = await userSlack.search.messages({ query: `${kw} in:#${req.channelName} after:${from} before:${to}`, sort: 'timestamp', sort_dir: 'asc', count: 100 });
           const m = (res.messages?.matches || []).find((x) =>
-            /(반환|지급)\s*완료|상계/.test(x.text || '') && (String(x.permalink).match(/thread_ts=([\d.]+)/) || [])[1] === req.threadTs && x.ts !== req.threadTs);
+            /(반환|지급)\s*완료|상계/.test(x.text || '') && !IS_QUESTION.test(x.text || '') && (String(x.permalink).match(/thread_ts=([\d.]+)/) || [])[1] === req.threadTs && x.ts !== req.threadTs);
           if (m) {
             list.push({ type: 'REFUND_DONE', date: kstDateOfTs(m.ts), link: m.permalink, text: `반환 요청 스레드에 완료 답글: ${clip(m.text, 100)}` });
             break;
@@ -568,9 +582,9 @@ async function collectCrm(bznos) {
     const t = String(r.content || '');
     const type = /임시\s*한도|임시기간/.test(t) ? 'TEMP'
       : DEP_EXCEPTION_RE.test(t) ? 'DEP_EXCEPTION'
-      : /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t) ? 'REFUND_DONE'
+      : /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t) && !IS_QUESTION.test(t) ? 'REFUND_DONE'
       : /보증금[^.]{0,40}반환/.test(t) ? 'REFUND_REQ'
-        : /해지|탈회|철회/.test(t) ? 'EXIT' : 'NOTE';
+        : /해지|탈회|철회/.test(t) && !IS_QUESTION.test(t) ? 'EXIT' : 'NOTE';
     map.get(r.bzno).push({ type, date: r.d, text: clip(t, 160), link: '', src: 'CRM' });
   }
   return map;
