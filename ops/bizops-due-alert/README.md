@@ -20,6 +20,7 @@ node index.js --force     # 멱등 가드 무시하고 강제 재발송
 ## 스케줄
 
 - launchd `com.gowid.bizops-due-alert` 가 매일 **11:00 KST** (맥 로컬 타임존 = Asia/Seoul) 실행.
+- 백업: GitHub Actions `.github/workflows/bizops-due-alert.yml` — Mac이 꺼져 11시에 못 보낸 날, KST 11:20~18:50 사이 30분마다 재시도(멱등 가드로 하루 1회). GitHub 예약은 수시간 지연되므로 1차는 Mac.
 - 실제 호출: `run.sh` → `node index.js`.
 - 로그: `~/yuna-test/ops/bizops-due-alert/bizops-due-alert.log`
 

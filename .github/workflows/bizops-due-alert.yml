@@ -2,13 +2,12 @@ name: BizOps Due Alert
 
 on:
   schedule:
-    # 안전망: 4개 분산 (GitHub Actions 저빈도 cron 지연 대비). 중복 발송은 index.js 멱등 가드가 막음.
-    - cron: '0 2 * * *'   # KST 11:00
-    - cron: '15 2 * * *'  # KST 11:15
-    - cron: '30 2 * * *'  # KST 11:30
-    - cron: '45 2 * * *'  # KST 11:45
+    # 1차 발송 = Mac launchd 11:00 정각. 이 워크플로는 Mac이 꺼져 있을 때의 백업.
+    # GitHub 저빈도 cron은 수시간 지연·누락되므로 KST 11:20~18:50 사이 30분마다 재시도.
+    # 이미 오늘 보냈으면 index.js 멱등 가드가 skip → 하루 1회만 발송.
+    - cron: '20,50 2-9 * * *'  # KST 11:20~18:50
   workflow_run:
-    # 매시간 fire되는 Update Dashboard Data 완료 후 piggyback (card-pending-alert와 동일 패턴)
+    # Update Dashboard Data 완료 후 piggyback (실제로는 ~8시간 간격으로만 fire됨)
     workflows: ["Update Dashboard Data"]
     types: [completed]
   workflow_dispatch:
@@ -29,19 +28,20 @@ jobs:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
 
     steps:
-      - name: Time window guard (workflow_run only)
+      - name: Time window guard
         id: window
         run: |
-          # workflow_run는 매시간 트리거됨 → KST 11~12시(UTC 02~03) 윈도우 밖이면 종료
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            HOUR=$(date -u +%H)
-            case "$HOUR" in
-              02|03) echo "proceed=true" >> $GITHUB_OUTPUT ;;
-              *) echo "proceed=false" >> $GITHUB_OUTPUT; echo "✗ outside KST 11-12 window (UTC=$HOUR), skipping" ;;
-            esac
-          else
-            echo "proceed=true" >> $GITHUB_OUTPUT
-          fi
+          # 수동 실행(dispatch) 외에는 KST 11~19시에만 진행.
+          # - schedule: 수시간 지연된 cron이 새벽에 '다음 날' 알림을 먼저 보내는 것 방지
+          # - workflow_run: KST 11시대는 Mac 1차 발송과 겹치지 않게 12시부터
+          HOUR=$(TZ=Asia/Seoul date +%H)
+          case "${{ github.event_name }}" in
+            workflow_dispatch) OK=true ;;
+            schedule) case "$HOUR" in 11|12|13|14|15|16|17|18|19) OK=true ;; *) OK=false ;; esac ;;
+            *) case "$HOUR" in 12|13|14|15|16|17|18|19) OK=true ;; *) OK=false ;; esac ;;
+          esac
+          echo "proceed=$OK" >> $GITHUB_OUTPUT
+          echo "trigger=${{ github.event_name }} KST_HOUR=$HOUR proceed=$OK"
 
       - uses: actions/checkout@v4
         if: steps.window.outputs.proceed == 'true'
