@@ -248,7 +248,25 @@ async function syncKb() {
   }
 }
 
-main().catch((err) => {
-  console.error('❌ 동기화 실패:', err.message);
-  process.exit(1);
-});
+// Mac이 잠자기에서 깨어난 직후(launchd 지연 실행)엔 네트워크가 아직 없어 'fetch failed'가 난다.
+// 일시적 네트워크·인증 오류는 30초·60초 뒤 재시도한다. (2026-10-15: launchd 실행의 1/3이 이 이유로 실패)
+const TRANSIENT = /fetch failed|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|invalid authentication credentials/i;
+const kst = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
+
+(async () => {
+  console.log(`── ${kst()} KST`);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await main();
+      return;
+    } catch (err) {
+      if (attempt < 3 && TRANSIENT.test(err.message)) {
+        console.log(`  ⏳ 일시 오류(${err.message.slice(0, 60)}) — ${attempt * 30}초 후 재시도`);
+        await new Promise((r) => setTimeout(r, attempt * 30000));
+        continue;
+      }
+      console.error('❌ 동기화 실패:', err.message);
+      process.exit(1);
+    }
+  }
+})();
