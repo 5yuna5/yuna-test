@@ -444,6 +444,9 @@ function mentionsCorp(text, corp) {
 
 // 묻는 글은 사실 근거가 아니다 — "반환완료 된 걸까요?", "탈회 하신거 아닌가요.." 같은 문장은 완료·탈회로 보지 않는다
 const IS_QUESTION = /[?？]|까요|나요|아닌가요|인가요|인지 /;
+// 재무팀 완료 답글 문구는 제각각이다: "반환 완료", "지급 완료", "이체 완료"(나우랩스), "송금 완료"
+// '상계'만으로는 안 된다 — "상계 진행 해주신 후에"(소도몰)처럼 지시·예정 글이 많음. 완료형만 인정
+const DONE_RE = /(반환|지급|이체|송금|환불|상계)\s*(처리\s*)?(완료|했|하였)/;
 
 // 슬랙 메시지 → 사유 이벤트
 function parseEvent(raw, date, link) {
@@ -469,7 +472,7 @@ function parseEvent(raw, date, link) {
   }
   if (/승인 완료 알림/.test(t)) return { ...base, type: 'ISSUED', card: normCard((t.match(/카드종류:\s*(\S+)/) || [])[1] || '') };
   const asked = IS_QUESTION.test(t);
-  if (!asked && /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t)) return { ...base, type: 'REFUND_DONE' };
+  if (!asked && /보증금/.test(t) && DONE_RE.test(t)) return { ...base, type: 'REFUND_DONE' };
   if (DEP_EXCEPTION_RE.test(t)) return { ...base, type: 'DEP_EXCEPTION' };
   if (/보증금/.test(t) && /반환/.test(t) && /요청|기안|상신/.test(t)) return { ...base, type: 'REFUND_REQ' };
   if (!asked && /해지|탈회|철회|드랍/.test(t)) return { ...base, type: 'EXIT' };
@@ -541,11 +544,12 @@ async function linkRefundReplies(events) {
     for (const req of list.filter((e) => e.type === 'REFUND_REQ' && e.threadTs && e.channelName)) {
       const from = new Date(Number(req.threadTs) * 1000 - 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
       const to = new Date(Number(req.threadTs) * 1000 + 90 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-      for (const kw of ['반환', '지급']) {
+      // 사용자 토큰엔 스레드 읽기 권한(history)이 없어 검색으로 찾는다. 완료 답글엔 '반환'이 없을 수 있음 (나우랩스: "이체 완료")
+      for (const kw of ['반환', '지급', '이체', '송금']) {
         try {
           const res = await userSlack.search.messages({ query: `${kw} in:#${req.channelName} after:${from} before:${to}`, sort: 'timestamp', sort_dir: 'asc', count: 100 });
           const m = (res.messages?.matches || []).find((x) =>
-            /(반환|지급)\s*완료|상계/.test(x.text || '') && !IS_QUESTION.test(x.text || '') && (String(x.permalink).match(/thread_ts=([\d.]+)/) || [])[1] === req.threadTs && x.ts !== req.threadTs);
+            DONE_RE.test(x.text || '') && !IS_QUESTION.test(x.text || '') && (String(x.permalink).match(/thread_ts=([\d.]+)/) || [])[1] === req.threadTs && x.ts !== req.threadTs);
           if (m) {
             list.push({ type: 'REFUND_DONE', date: kstDateOfTs(m.ts), link: m.permalink, text: `반환 요청 스레드에 완료 답글: ${clip(m.text, 100)}` });
             break;
@@ -582,7 +586,7 @@ async function collectCrm(bznos) {
     const t = String(r.content || '');
     const type = /임시\s*한도|임시기간/.test(t) ? 'TEMP'
       : DEP_EXCEPTION_RE.test(t) ? 'DEP_EXCEPTION'
-      : /보증금/.test(t) && /(반환|지급)\s*완료|상계/.test(t) && !IS_QUESTION.test(t) ? 'REFUND_DONE'
+      : /보증금/.test(t) && DONE_RE.test(t) && !IS_QUESTION.test(t) ? 'REFUND_DONE'
       : /보증금[^.]{0,40}반환/.test(t) ? 'REFUND_REQ'
         : /해지|탈회|철회/.test(t) && !IS_QUESTION.test(t) ? 'EXIT' : 'NOTE';
     map.get(r.bzno).push({ type, date: r.d, text: clip(t, 160), link: '', src: 'CRM' });
@@ -1014,36 +1018,53 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
   return blocks;
 }
 
+async function findParent() {
+  const history = await slack.conversations.history({ channel: CHANNEL, limit: 30 });
+  const parentMsg = history.messages.find((m) => m.bot_id === PARENT_BOT_ID);
+  if (!parentMsg) throw new Error('온보딩 퍼널별 고객 터치 알림 봇 메시지를 찾을 수 없습니다.');
+  return parentMsg;
+}
+
+// 오늘자 답글이 이미 있으면 그 ts, 없으면 null. 조회 실패 시 null (누락이 중복보다 위험)
+async function todaysReply(parentMsg) {
+  try {
+    const replies = await slack.conversations.replies({ channel: CHANNEL, ts: parentMsg.ts });
+    const dup = (replies.messages || []).find((m) =>
+      (m.username === BOT_USERNAME || m.bot_profile?.name === BOT_USERNAME) && tsToKstDate(m.ts) === todayKstDate());
+    return dup ? dup.ts : null;
+  } catch (err) {
+    console.error(`중복 체크 실패 (계속 진행): ${err.message}`);
+    return null;
+  }
+}
+
 async function postSlack(blocks, summaryText) {
   const base = { channel: CHANNEL, username: BOT_USERNAME, icon_emoji: ':mag:', text: summaryText, blocks, unfurl_links: false, unfurl_media: false };
   if (NO_THREAD) {
     await slack.chat.postMessage(base);
     return;
   }
-  const history = await slack.conversations.history({ channel: CHANNEL, limit: 30 });
-  const parentMsg = history.messages.find((m) => m.bot_id === PARENT_BOT_ID);
-  if (!parentMsg) throw new Error('온보딩 퍼널별 고객 터치 알림 봇 메시지를 찾을 수 없습니다.');
-
+  const parentMsg = await findParent();
   // 멱등성: 오늘자 같은 이름의 답글이 이미 있으면 skip (GHA 분산 cron 중복 방지)
-  if (!FORCE) {
-    try {
-      const replies = await slack.conversations.replies({ channel: CHANNEL, ts: parentMsg.ts });
-      const dup = (replies.messages || []).find((m) =>
-        (m.username === BOT_USERNAME || m.bot_profile?.name === BOT_USERNAME) && tsToKstDate(m.ts) === todayKstDate());
-      if (dup) {
-        console.log(`이미 오늘자 알림이 쓰레드에 있어 슬랙 발송 skip (ts=${dup.ts})`);
-        return;
-      }
-    } catch (err) {
-      // 조회 실패 시 발송 진행 (누락이 중복보다 위험)
-      console.error(`중복 체크 실패 (계속 진행): ${err.message}`);
-    }
+  const dupTs = FORCE ? null : await todaysReply(parentMsg);
+  if (dupTs) {
+    console.log(`이미 오늘자 알림이 쓰레드에 있어 슬랙 발송 skip (ts=${dupTs})`);
+    return;
   }
   await slack.chat.postMessage({ ...base, thread_ts: parentMsg.ts });
 }
 
 // ─── Main ───
 async function main() {
+  // 슬랙 사용자 토큰이 없는 실행(GHA)은 사유를 제대로 못 찾는 축소 모드다.
+  // 오늘 이미 9시 로컬(전체 검색) 결과가 나갔으면 시트를 덮어쓰지 않고 끝낸다 — 슬랙과 시트가 어긋나는 걸 막음
+  if (!userSlack && !DRY_RUN && !FORCE && !NO_THREAD) {
+    const dupTs = await todaysReply(await findParent());
+    if (dupTs) {
+      console.log(`오늘 알림이 이미 발송됨(ts=${dupTs}) — 사용자 토큰 없는 실행이라 시트·슬랙 모두 건드리지 않음`);
+      return;
+    }
+  }
   console.log('📥 BigQuery 조회 중...');
   const [depRows, issRows] = await Promise.all([fetchDeposit(), fetchIssuance()]);
   const dwDate = depRows[0]?.dw_date || issRows[0]?.dw_date || '-';
