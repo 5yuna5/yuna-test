@@ -44,6 +44,7 @@ const DRY_RUN = args.includes('--dry-run');
 const NO_SLACK = args.includes('--no-slack');
 const FORCE = args.includes('--force');
 const NO_THREAD = args.includes('--no-thread');
+const FALLBACK_AFTER_KST_HOUR = 10; // 사용자 토큰 없는 실행(GHA)은 이 시각 이후에만 폴백
 const channelIdx = args.indexOf('--channel');
 const CHANNEL = channelIdx >= 0 ? args[channelIdx + 1] : DEFAULT_CHANNEL;
 
@@ -1059,6 +1060,13 @@ async function main() {
   // 슬랙 사용자 토큰이 없는 실행(GHA)은 사유를 제대로 못 찾는 축소 모드다.
   // 오늘 이미 9시 로컬(전체 검색) 결과가 나갔으면 시트를 덮어쓰지 않고 끝낸다 — 슬랙과 시트가 어긋나는 걸 막음
   if (!userSlack && !DRY_RUN && !FORCE && !NO_THREAD) {
+    // 9시 로컬 실행은 슬랙 전체 검색 때문에 15~20분 걸린다. 그 사이 GHA가 먼저 축소 결과를 보내면 안 되므로
+    // 토큰 없는 실행은 KST 10시 이후, 오늘 알림이 아직 없을 때(맥이 꺼진 날)만 폴백으로 돈다
+    const kstHour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }));
+    if (kstHour < FALLBACK_AFTER_KST_HOUR) {
+      console.log(`KST ${kstHour}시 — 로컬(전체 검색) 실행 대기 시간이라 폴백 실행 안 함 (${FALLBACK_AFTER_KST_HOUR}시 이후만)`);
+      return;
+    }
     const dupTs = await todaysReply(await findParent());
     if (dupTs) {
       console.log(`오늘 알림이 이미 발송됨(ts=${dupTs}) — 사용자 토큰 없는 실행이라 시트·슬랙 모두 건드리지 않음`);

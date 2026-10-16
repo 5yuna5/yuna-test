@@ -1,14 +1,15 @@
 name: Limit Integrity Alert
 
 # 한도 정합성 알럿 — 보증금(계약=입금=한도) / 발급(승인=현재) 대조 → 시트 갱신 + 슬랙 요약
-# 트리거 구조는 card-pending-alert와 동일: 매시간 Update Dashboard Data 완료에 piggyback(1차) + 분산 cron(폴백).
+# 1차는 맥 launchd 09:00(슬랙 전체 검색, 15~20분 소요). GHA는 사용자 토큰이 없어 사유를 덜 찾으므로 KST 10시 이후 폴백 전용 —
+# 오늘 알림이 이미 있으면 시트·슬랙 모두 건드리지 않는다 (index.js 가드).
 # 슬랙 중복 발송은 index.js 멱등성 가드가 막고, 시트 갱신은 몇 번 돌아도 결과 동일.
 
 on:
   schedule:
-    - cron: '55 23 * * *'  # KST 08:55
-    - cron: '25 0 * * *'   # KST 09:25
-    - cron: '55 0 * * *'   # KST 09:55
+    - cron: '5 1 * * *'    # KST 10:05 (폴백: 맥이 꺼져 9시 로컬 실행을 놓친 날만)
+    - cron: '35 1 * * *'   # KST 10:35
+    - cron: '5 2 * * *'    # KST 11:05
   workflow_run:
     workflows: ["Update Dashboard Data"]
     types: [completed]
@@ -26,8 +27,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             HOUR=$(date -u +%H)
             case "$HOUR" in
-              23|00|01) echo "proceed=true" >> $GITHUB_OUTPUT ;;
-              *) echo "proceed=false" >> $GITHUB_OUTPUT; echo "outside KST 08-10 window (UTC=$HOUR), skip" ;;
+              01|02|03) echo "proceed=true" >> $GITHUB_OUTPUT ;;
+              *) echo "proceed=false" >> $GITHUB_OUTPUT; echo "outside KST 10-13 fallback window (UTC=$HOUR), skip" ;;
             esac
           else
             echo "proceed=true" >> $GITHUB_OUTPUT
