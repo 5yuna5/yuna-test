@@ -183,6 +183,16 @@ async function fetchDeposit() {
     WHERE date_id = (SELECT d FROM mcd) AND date_id >= DATE_SUB(CURRENT_DATE('Asia/Seoul'), INTERVAL 7 DAY)
     GROUP BY 1
   ),
+  -- 최신 한도 신청: 카드 발급 전 멈춘 법인이 어느 단계에서 멈췄는지 (예: 수성에너텍 한도 신청 만료·전자서명 미진행)
+  la AS (
+    SELECT idxCorp, status, CAST(expiresAt AS STRING) AS expires_at, appliedAt IS NOT NULL AS is_applied
+    FROM (
+      SELECT * FROM \`gowid-prd.ods_stream_gowid.LimitApplication\`
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY datastream_metadata.source_timestamp DESC) = 1
+    )
+    WHERE isDeleted = 0
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY idxCorp ORDER BY createdAt DESC) = 1
+  ),
   base AS (SELECT idxCorp FROM last_da UNION DISTINCT SELECT idxCorp FROM dm_corp)
   SELECT
     b.idxCorp AS idx, corp.corp_name, CAST(corp.corp_id AS STRING) AS bzno,
@@ -196,6 +206,7 @@ async function fetchDeposit() {
     lim.cl_current, lim.cl_str, IFNULL(lim.any_issued, 0) AS any_issued, CAST(lim.cl_updated_at AS STRING) AS cl_updated_at,
     dwc.dw_total, dwc.dw_str, IFNULL(calc.calc_limit, 0) AS calc_limit,
     b.idxCorp IN (SELECT idx FROM deleted) AS is_deleted,
+    la.status AS la_status, la.expires_at AS la_expires_at, IFNULL(la.is_applied, FALSE) AS la_applied,
     CAST((SELECT d FROM dwd) AS STRING) AS dw_date
   FROM base b
   LEFT JOIN last_da d ON d.idxCorp = b.idxCorp
@@ -205,6 +216,7 @@ async function fetchDeposit() {
   LEFT JOIN lim ON lim.idxCorp = b.idxCorp
   LEFT JOIN dwc ON dwc.idxCorp = b.idxCorp
   LEFT JOIN calc ON calc.corp_id = corp.corp_id
+  LEFT JOIN la ON la.idxCorp = b.idxCorp
   `);
 }
 
@@ -338,6 +350,15 @@ async function fetchIssuance() {
 // ─── 판정 ───
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 
+// 카드 발급 전 멈춘 법인의 멈춘 단계 (최신 한도 신청 기준)
+function stallStage(r) {
+  if (!r.la_status) return '한도 신청 기록 없음 — 입회 진행 멈춤';
+  if (r.la_applied) return `카드 신청 제출 후 발급 안 됨 (한도 신청 ${r.la_status})`;
+  const exp = r.la_expires_at ? String(r.la_expires_at).slice(0, 10) : '';
+  if (exp && exp < todayKstDate()) return `한도 신청 ${exp} 만료 · 카드 신청 전자서명 미진행 — 재산출 후 신청 or 보증금 반환`;
+  return `카드 신청 전자서명 대기${exp ? ` (한도 신청 ${exp} 만료 예정)` : ''}`;
+}
+
 function classifyDeposit(r) {
   const contract = num(r.contract_amount) || 0;
   const depIn = num(r.deposit_in);
@@ -360,7 +381,7 @@ function classifyDeposit(r) {
   if (bal > 0 && lim === 0 && !r.is_deleted && preIssue) return null; // 카드 발급 전 입회 진행 중 (예: 율믹스 10/8 접수)
   if (bal > 0 && lim === 0 && !r.is_deleted) {
     codes.push('DEP_ZERO');
-    notes.push(`보증금 ${fmtAmt(bal)} 보유 중인데 한도 0원${!Number(r.any_issued) ? ` · 카드 발급 전 (마지막 입금 후 ${Math.floor(hoursSince(r.last_deposit_change_at) / 24)}일) — 입회 진행 멈춤` : ''}`);
+    notes.push(`보증금 ${fmtAmt(bal)} 보유 중인데 한도 0원${!Number(r.any_issued) ? ` · 카드 발급 전 (마지막 입금 후 ${Math.floor(hoursSince(r.last_deposit_change_at) / 24)}일) — ${stallStage(r)}` : ''}`);
   }
   // 내부≠카드사 비교는 발급 탭(카드사별)에서 본다 — 여기서 하면 합계 기준이라 중복·오탐(임시한도 등)
   if (!r.has_application) notes.push('보증금 신청 기록 없이 입출금 내역에만 있음');
@@ -1066,8 +1087,9 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
   const line = (it) => {
     const [mark, ...name] = CODES[it.code].label.split(' ');
     const card = it.tab === 'issuance' ? ` (${CARD_KO[it.card_company] || it.card_company})` : '';
-    const link = it.reasonLink && it.reasonIsEvidence ? `  <${it.reasonLink}|근거>` : '';
-    return `${mark} *${it.corp_name}*${card} — ${name.join(' ')}${it.isNew ? ' :new:' : ''}\n      └ ${it.note}${link}`;
+    const safeLink = it.reasonLink && /^https?:\/\/[^\s|<>]+$/.test(it.reasonLink);
+    const link = safeLink && it.reasonIsEvidence ? `  <${it.reasonLink}|근거>` : '';
+    return `${mark} *${it.corp_name}*${card} — ${name.join(' ')}${it.isNew ? ' :new:' : ''}\n      └ ${clip(String(it.note || ''), 600)}${link}`;
   };
 
   const blocks = [
@@ -1096,6 +1118,8 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
     blocks.push({ type: 'divider' });
     pushList(`*④ 처리 확인 요청 ${follow.length}건* — 한도 문제 아님, 입금·반환 후속 확인`, follow);
   }
+  // 슬랙 블록 50개 제한 (10/17 invalid_blocks 재발 방지) — 넘치면 시트 안내로 대체
+  if (blocks.length > 48) blocks.splice(47, blocks.length - 47, { type: 'section', text: { type: 'mrkdwn', text: '_(이하 생략 — 진척 관리 시트 참조)_' } });
   const explainedCnt = [...depItems, ...issItems].filter((it) => it.code === 'EXPLAINED').length;
   blocks.push({
     type: 'context',
@@ -1137,7 +1161,16 @@ async function postSlack(blocks, summaryText) {
     console.log(`이미 오늘자 알림이 쓰레드에 있어 슬랙 발송 skip (ts=${dupTs})`);
     return;
   }
-  await slack.chat.postMessage({ ...base, thread_ts: parentMsg.ts });
+  try {
+    await slack.chat.postMessage({ ...base, thread_ts: parentMsg.ts });
+  } catch (err) {
+    if (err.data?.error !== 'invalid_blocks') throw err;
+    // 블록 형식 오류여도 알림은 나가야 한다 → 원인 기록 후 같은 내용을 텍스트로 재발송
+    console.error(`invalid_blocks 상세: ${JSON.stringify(err.data?.response_metadata?.messages || [])}`);
+    const plain = blocks.map((b) => b.text?.text || b.elements?.[0]?.text || '').filter(Boolean).join('\n\n');
+    await slack.chat.postMessage({ channel: CHANNEL, username: BOT_USERNAME, icon_emoji: ':mag:', text: plain.slice(0, 39000), thread_ts: parentMsg.ts, unfurl_links: false });
+    console.log('블록 오류 → 텍스트로 재발송 완료');
+  }
 }
 
 // ─── Main ───
