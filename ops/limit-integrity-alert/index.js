@@ -38,6 +38,11 @@ const BOT_USERNAME = '한도 정합성 알림';
 
 const ISSUE_LOOKBACK_DAYS = 180; // 발급 승인한도 대조 대상: 최근 N일 발급분
 const PLACEHOLDER_LIMIT = 10000; // 롯데 1만원 플레이스홀더 한도는 제외
+// 카드사 데이터 통째 누락 판정: 대조 대상 중 카드사 행이 없는 건이 이만큼 이상이면 적재 장애로 보고 그 카드사 대조를 보류
+// (10/17 신한 dw 미적재 → 1,236건 '카드사 한도 미반영' 오탐 → 슬랙 invalid_blocks·해소 탭 대량 이동)
+const DATA_GAP_MIN = 30;
+const DATA_GAP_RATIO = 0.3;
+let DATA_GAP = []; // [{ company, missing, total }]
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
@@ -428,6 +433,19 @@ function classifyDeposit(r) {
     ],
     note: notes.join(' · '),
   };
+}
+
+// 카드사별로 '내부 한도는 있는데 카드사 행이 없는' 비율을 보고 적재 장애를 가려낸다
+function detectDataGap(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    if (r.is_check_card || (num(r.cl_current) || 0) <= PLACEHOLDER_LIMIT) continue;
+    const s = by.get(r.card_company) || { company: r.card_company, missing: 0, total: 0 };
+    s.total++;
+    if (!r.has_dw_row) s.missing++;
+    by.set(r.card_company, s);
+  }
+  return [...by.values()].filter((s) => s.missing >= DATA_GAP_MIN && s.missing / s.total >= DATA_GAP_RATIO);
 }
 
 function classifyIssuance(r) {
@@ -1045,6 +1063,8 @@ async function syncSheet(depItems, issItems, dwDate) {
   const resolved = [];
   const explainedDone = await readResolvedExplainedKeys();
   for (const [tab, sheetId, allItems] of [[TABS.deposit, depId, depItems], [TABS.issuance, issId, issItems]]) {
+    // 카드사 데이터 적재 장애 날엔 발급 탭을 그대로 둔다 (기존 행이 '정상화'로 잘못 해소 이동되는 것 방지)
+    if (tab === TABS.issuance && DATA_GAP.length) continue;
     const items = allItems.filter((it) => it.code !== 'EXPLAINED');
     const explained = new Map(allItems.filter((it) => it.code === 'EXPLAINED').map((it) => [it.key, it]));
     const existing = indexExisting(tab, await readTab(tab.name));
@@ -1095,7 +1115,7 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `:mag: 한도 정합성 점검 (${today.slice(5).replace('-', '/')})` } },
     { type: 'section', text: { type: 'mrkdwn', text: `*① 보증금* (계약서 값 = 입금액 = 현재 한도)\n${count(dep)}` } },
-    { type: 'section', text: { type: 'mrkdwn', text: `*② 발급* (발급 승인한도 = 현재 한도)\n${count(iss)}` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `*② 발급* (발급 승인한도 = 현재 한도)\n${count(iss)}${DATA_GAP.length ? `\n:warning: ${DATA_GAP.map((g) => `${CARD_KO[g.company] || g.company} ${g.missing}건`).join(', ')} 카드사 한도 데이터 미적재 — 해당 카드사 대조 보류 (기준일 ${dwDate})` : ''}` } },
   ];
 
   // 섹션 텍스트 3,000자 제한 → 나눠 담는다
@@ -1195,7 +1215,10 @@ async function main() {
   const [depRows, issRows, awaitRows] = await Promise.all([fetchDeposit(), fetchIssuance(), fetchDepositAwaiting()]);
   const dwDate = depRows[0]?.dw_date || issRows[0]?.dw_date || '-';
   const depItems = depRows.map(classifyDeposit).filter(Boolean);
-  const issItems = issRows.map(classifyIssuance).filter(Boolean);
+  DATA_GAP = detectDataGap(issRows);
+  for (const g of DATA_GAP) console.log(`⚠️ ${g.company} 카드사 한도 데이터 누락 ${g.missing}/${g.total}건 — 적재 장애로 보고 대조 보류, 발급 탭 유지`);
+  const gapSet = new Set(DATA_GAP.map((g) => g.company));
+  const issItems = issRows.filter((r) => !(gapSet.has(r.card_company) && !r.has_dw_row)).map(classifyIssuance).filter(Boolean);
   console.log(`🔎 사유 수집 중 (판정 ${depItems.length + issItems.length}건)...`);
   const reasonSource = await attachReasons([...depItems, ...issItems]);
   console.log(`사유 출처: ${reasonSource} + CRM`);
