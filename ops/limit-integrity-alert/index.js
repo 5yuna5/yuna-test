@@ -37,6 +37,8 @@ const PARENT_BOT_ID = 'B0A1F2E9KPX'; // 온보딩 퍼널별 고객 터치 알림
 const BOT_USERNAME = '한도 정합성 알림';
 
 const ISSUE_LOOKBACK_DAYS = 180; // 발급 승인한도 대조 대상: 최근 N일 발급분
+// 매일 알림을 받아볼 사람 — 스레드 답글은 멘션이 없으면 알림이 안 울려서 직접 찾아봐야 한다 (봇에 im:write 없어 DM 불가)
+const NOTIFY_USERS = ['U09J53NDGV9']; // 오유나
 const PLACEHOLDER_LIMIT = 10000; // 롯데 1만원 플레이스홀더 한도는 제외
 // 카드사 데이터 통째 누락 판정: 대조 대상 중 카드사 행이 없는 건이 이만큼 이상이면 적재 장애로 보고 그 카드사 대조를 보류
 // (10/17 신한 dw 미적재 → 1,236건 '카드사 한도 미반영' 오탐 → 슬랙 invalid_blocks·해소 탭 대량 이동)
@@ -1114,7 +1116,7 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
 
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `:mag: 한도 정합성 점검 (${today.slice(5).replace('-', '/')})` } },
-    { type: 'section', text: { type: 'mrkdwn', text: `*① 보증금* (계약서 값 = 입금액 = 현재 한도)\n${count(dep)}` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `${NOTIFY_USERS.map((u) => `<@${u}>`).join(' ')}\n*① 보증금* (계약서 값 = 입금액 = 현재 한도)\n${count(dep)}` } },
     { type: 'section', text: { type: 'mrkdwn', text: `*② 발급* (발급 승인한도 = 현재 한도)\n${count(iss)}${DATA_GAP.length ? `\n:warning: ${DATA_GAP.map((g) => `${CARD_KO[g.company] || g.company} ${g.missing}건`).join(', ')} 카드사 한도 데이터 미적재 — 해당 카드사 대조 보류 (기준일 ${dwDate})` : ''}` } },
   ];
 
@@ -1266,7 +1268,7 @@ async function main() {
   if (NO_SLACK) return;
   const blocks = buildBlocks(depItems, issItems, resolvedCount, dwDate);
   const open = (items) => items.filter(isProblem).length;
-  const summary = `한도 정합성 점검: 보증금 ${open(depItems)}건, 발급 ${open(issItems)}건, 처리 확인 요청 ${depItems.filter(isFollowup).length}건`;
+  const summary = `${NOTIFY_USERS.map((u) => `<@${u}>`).join(' ')} 한도 정합성 점검: 보증금 ${open(depItems)}건, 발급 ${open(issItems)}건, 처리 확인 요청 ${depItems.filter(isFollowup).length}건`;
   console.log('💬 슬랙 발송 중...');
   await postSlack(blocks, summary);
   console.log('✅ 완료');
