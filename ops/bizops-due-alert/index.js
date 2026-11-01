@@ -257,6 +257,24 @@ function issueLine(issue, mentionMap, badge) {
   return parts.join('  ');
 }
 
+// Slack section text 한도 3000자 → 줄 단위로 나눠 여러 section 블록에 담는다 (26-11-01 기한초과 20건에서 invalid_blocks 실패)
+const SECTION_LIMIT = 2900;
+function packSections(lines) {
+  const blocks = [];
+  let buf = '';
+  for (let line of lines) {
+    if (line.length > SECTION_LIMIT) line = line.slice(0, SECTION_LIMIT - 1) + '…';
+    if (buf && buf.length + 1 + line.length > SECTION_LIMIT) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: buf } });
+      buf = line;
+    } else {
+      buf = buf ? `${buf}\n${line}` : line;
+    }
+  }
+  if (buf) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: buf } });
+  return blocks;
+}
+
 async function buildBlocks(issues, today) {
   const md = mmdd(today);
 
@@ -288,10 +306,7 @@ async function buildBlocks(issues, today) {
   // ── 🔴 기한 초과 (urgency 정렬, D+N 표기, 미그룹) ──
   if (overdue.length) {
     const lines = overdue.map((i) => `• ${issueLine(i, mentionMap, `\`D+${daysBetween(i.dueDate, today)}\``)}`);
-    blocks.push({
-      type: 'section',
-      text: { type: 'mrkdwn', text: `*🔴 기한 초과 (${overdue.length})*\n${lines.join('\n')}` },
-    });
+    blocks.push(...packSections([`*🔴 기한 초과 (${overdue.length})*`, ...lines]));
   }
 
   // ── 📌 오늘 마감 (담당자별 그룹, 미배정은 마지막) ──
@@ -309,10 +324,10 @@ async function buildBlocks(issues, today) {
     });
     const todayLines = [`*📌 오늘 마감 (${dueToday.length})*`];
     for (const name of names) {
-      const lines = groups[name].map((i) => `• ${issueLine(i, mentionMap)}`);
-      todayLines.push(`*${name}* (${groups[name].length})\n${lines.join('\n')}`);
+      todayLines.push(`*${name}* (${groups[name].length})`);
+      for (const i of groups[name]) todayLines.push(`• ${issueLine(i, mentionMap)}`);
     }
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: todayLines.join('\n') } });
+    blocks.push(...packSections(todayLines));
   }
 
   const mentionNote = hasRealMention
