@@ -170,17 +170,8 @@ function pick(table, value, dflt) {
 function todayKst() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 }
-/** 영업일 n일 뒤 (토·일 건너뜀). n=0이면 오늘. */
-function addBizDays(ymd, n) {
-  const d = new Date(ymd + 'T00:00:00Z');
-  let left = n;
-  while (left > 0) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    const dow = d.getUTCDay();
-    if (dow !== 0 && dow !== 6) left--;
-  }
-  return d.toISOString().slice(0, 10);
-}
+// 영업일 n일 뒤 (주말·공휴일·대체·임시공휴일 건너뜀, n=0이면 오늘) — 공용 모듈
+const { addBizDays } = require('../lib/kr-business-days');
 /** 사업자번호 10자리 → 000-00-00000 */
 function fmtBrn(d) {
   return d && d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}` : d;

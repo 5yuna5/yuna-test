@@ -8,6 +8,8 @@
  *     📌 오늘 마감(dueDate == 오늘) — 담당자별 그룹
  * - Slack 채널 C068EG4N7QA에 발송. 둘 다 0건이면 '✅ … 없음' 한 줄.
  * - 같은 KST 날짜 중복 발송은 멱등 가드로 방지(--force 제외).
+ * - `대기/카드사` 기한초과 건은 기한을 영업일 +2로 자동 연장(이슈당 최대 3회, 코멘트로 기록)하고
+ *   🔁 섹션에 따로 표시한다. 3회 소진 건은 기한초과에 그대로 남는다. (26-11-02)
  *
  * Slack 멘션 한계(v1): Linear assignee → Slack userid 매핑이 없어
  *   실제 @멘션(<@U…>)이 아니라 담당자 이름 텍스트만 표시한다. (v2 과제)
@@ -16,6 +18,7 @@
  *   node index.js              # 발송 (멱등 가드 적용)
  *   node index.js --dry-run    # Slack 미발송, 콘솔 미리보기만
  *   node index.js --force      # 멱등 가드 무시하고 강제 재발송
+ *   node index.js --no-extend  # Linear 기한 연장 없이 발송(테스트 채널 발송용, BIZOPS_NO_EXTEND=1과 동일)
  */
 
 // 로컬 실행용 .env (GitHub Actions에서는 파일이 없어 조용히 건너뜀 → 시크릿 env 사용)
@@ -27,6 +30,7 @@ require('dotenv').config({
 const https = require('https');
 const { execSync } = require('child_process');
 const { WebClient } = require('@slack/web-api');
+const { addBizDays } = require('../lib/kr-business-days');
 
 // ─── Config ───
 const CHANNEL = process.env.BIZOPS_CHANNEL_ID || 'C068EG4N7QA'; // 기본: 온보딩 퍼널별 고객 터치 알림. BIZOPS_CHANNEL_ID로 override(테스트용)
@@ -37,6 +41,14 @@ const DONE_STATE_TYPES = ['completed', 'canceled'];
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
 const FORCE = args.includes('--force');
+
+// ─── 카드사 회신 대기 자동 연장 (26-11-02) ───
+// `대기/카드사` 라벨 기한초과 건은 공이 카드사에 있으므로 영업일 기준으로 기한을 자동 연장한다.
+// 무한 연장(좀비) 방지를 위해 이슈당 EXTEND_MAX회까지만. 횟수는 이슈 코멘트의 EXTEND_MARK 개수로 센다.
+const EXTEND_BIZ = 2; // 오늘 기준 +2 영업일 (주말·공휴일 제외, ops/lib/kr-business-days.js)
+const EXTEND_MAX = 3;
+const EXTEND_MARK = '🔁 자동 연장';
+const NO_EXTEND = args.includes('--no-extend') || process.env.BIZOPS_NO_EXTEND === '1'; // 테스트 발송용
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
@@ -132,7 +144,7 @@ const QUERY_FILTERED = `
       issues(first: 100, after: $cursor, filter: { dueDate: { lte: $today } }) {
         pageInfo { hasNextPage endCursor }
         nodes {
-          identifier title url dueDate
+          id identifier title url dueDate
           state { type }
           assignee { name displayName email }
           project { name }
@@ -150,7 +162,7 @@ const QUERY_ALL = `
       issues(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
         nodes {
-          identifier title url dueDate
+          id identifier title url dueDate
           state { type }
           assignee { name displayName email }
           project { name }
@@ -195,6 +207,66 @@ async function fetchDueIssues(today) {
       n.state &&
       !DONE_STATE_TYPES.includes(n.state.type)
   );
+}
+
+// ─── 자동 연장 ───
+function isCarrierWait(issue) {
+  return ((issue.labels && issue.labels.nodes) || []).some(
+    (l) => l.parent && l.parent.name === '대기' && l.name === '카드사'
+  );
+}
+
+async function countExtensions(issueId) {
+  const data = await linearQuery(
+    `query($id: String!) { issue(id: $id) { comments(first: 100) { nodes { body } } } }`,
+    { id: issueId }
+  );
+  return data.issue.comments.nodes.filter((c) => (c.body || '').startsWith(EXTEND_MARK)).length;
+}
+
+/**
+ * 기한초과 + 대기/카드사 건을 연장한다.
+ * apply=false(dry-run)면 Linear를 건드리지 않고 계획만 돌려준다.
+ * 반환: { extended: [{issue, from, to, n}], exhausted: Set<identifier> }
+ * 개별 실패는 로그만 남기고 해당 건은 기한초과로 남긴다(알림 발송은 계속).
+ */
+async function autoExtend(issues, today, apply) {
+  const extended = [];
+  const exhausted = new Set();
+  const targets = issues.filter((i) => i.dueDate < today && isCarrierWait(i));
+  const to = addBizDays(today, EXTEND_BIZ);
+  for (const issue of targets) {
+    try {
+      const done = await countExtensions(issue.id);
+      if (done >= EXTEND_MAX) {
+        exhausted.add(issue.identifier);
+        continue;
+      }
+      const n = done + 1;
+      if (apply) {
+        await linearQuery(
+          `mutation($id: String!, $due: TimelessDate!) { issueUpdate(id: $id, input: { dueDate: $due }) { success } }`,
+          { id: issue.id, due: to }
+        );
+        await linearQuery(
+          `mutation($id: String!, $body: String!) { commentCreate(input: { issueId: $id, body: $body }) { success } }`,
+          {
+            id: issue.id,
+            body:
+              `${EXTEND_MARK} (${n}/${EXTEND_MAX}) — 카드사 회신 대기 건이라 기한을 ${issue.dueDate} → ${to}(영업일 +${EXTEND_BIZ})로 연장했습니다.\n` +
+              (n === EXTEND_MAX
+                ? '마지막 자동 연장입니다. 다음 기한을 넘기면 기한초과로 알림에 올라갑니다. 카드사에 회신을 독촉하거나 상태를 정리해주세요.'
+                : '회신을 받았거나 처리가 끝났으면 상태를 옮겨주세요.') +
+              '\n— BizOps 마감 알림 봇',
+          }
+        );
+      }
+      extended.push({ issue, from: issue.dueDate, to, n });
+    } catch (err) {
+      console.error(`[bizops-due-alert] ${issue.identifier} 자동 연장 실패(기한초과로 유지): ${err.message}`);
+    }
+  }
+  return { extended, exhausted };
 }
 
 // ─── Block Kit ───
@@ -275,10 +347,10 @@ function packSections(lines) {
   return blocks;
 }
 
-async function buildBlocks(issues, today) {
+async function buildBlocks(issues, today, ext = { extended: [], exhausted: new Set() }) {
   const md = mmdd(today);
 
-  if (issues.length === 0) {
+  if (issues.length === 0 && ext.extended.length === 0) {
     return [
       {
         type: 'section',
@@ -287,7 +359,7 @@ async function buildBlocks(issues, today) {
     ];
   }
 
-  const mentionMap = await resolveMentions(issues);
+  const mentionMap = await resolveMentions([...issues, ...ext.extended.map((e) => e.issue)]);
   const hasRealMention = [...mentionMap.values()].some((v) => !!v);
 
   // dueDate 기준 분리: 기한 초과(< 오늘) / 오늘 마감(== 오늘)
@@ -305,7 +377,11 @@ async function buildBlocks(issues, today) {
 
   // ── 🔴 기한 초과 (urgency 정렬, D+N 표기, 미그룹) ──
   if (overdue.length) {
-    const lines = overdue.map((i) => `• ${issueLine(i, mentionMap, `\`D+${daysBetween(i.dueDate, today)}\``)}`);
+    const lines = overdue.map((i) => {
+      let badge = `\`D+${daysBetween(i.dueDate, today)}\``;
+      if (ext.exhausted.has(i.identifier)) badge += ` \`자동연장 ${EXTEND_MAX}회 소진\``;
+      return `• ${issueLine(i, mentionMap, badge)}`;
+    });
     blocks.push(...packSections([`*🔴 기한 초과 (${overdue.length})*`, ...lines]));
   }
 
@@ -328,6 +404,21 @@ async function buildBlocks(issues, today) {
       for (const i of groups[name]) todayLines.push(`• ${issueLine(i, mentionMap)}`);
     }
     blocks.push(...packSections(todayLines));
+  }
+
+  // ── 🔁 카드사 회신 대기 자동 연장 ──
+  if (ext.extended.length) {
+    const to = mmdd(ext.extended[0].to);
+    const lines = ext.extended.map(
+      ({ issue, from, n }) =>
+        `• <${issue.url}|${issue.identifier}> ${issue.title}  \`${mmdd(from)}→${to}\` (${n}/${EXTEND_MAX})  ${assigneeMention(issue, mentionMap)}`
+    );
+    blocks.push(
+      ...packSections([
+        `*🔁 카드사 회신 대기 — 기한 자동 연장 (${ext.extended.length})* _영업일 +${EXTEND_BIZ}, 최대 ${EXTEND_MAX}회_`,
+        ...lines,
+      ])
+    );
   }
 
   const mentionNote = hasRealMention
@@ -361,32 +452,10 @@ async function main() {
   const today = todayKst();
   console.log(`[bizops-due-alert] 오늘(KST)=${today}, BizOps 마감/기한초과 미완료 이슈 조회 중...`);
 
-  const issues = await fetchDueIssues(today);
-  const overdueCount = issues.filter((i) => i.dueDate < today).length;
-  const todayCount = issues.filter((i) => i.dueDate === today).length;
-  console.log(`[bizops-due-alert] 기한초과 ${overdueCount} · 오늘마감 ${todayCount} (총 ${issues.length}건)`);
-
-  const blocks = await buildBlocks(issues, today);
-  const summaryText =
-    issues.length === 0
-      ? `✅ 오늘(${mmdd(today)}) 마감·기한 초과 미완료 없음`
-      : `⏰ BizOps 마감 — 기한초과 ${overdueCount} · 오늘 ${todayCount} (${mmdd(today)})`;
-
-  if (DRY_RUN) {
-    console.log('\n[DRY RUN] Slack 미발송 — 메시지 미리보기:\n');
-    previewBlocks(blocks);
-    // 토큰 유효성만 확인(발송 안 함)
-    try {
-      const auth = await slack.auth.test();
-      console.log(`\n[DRY RUN] Slack 토큰 유효 (team=${auth.team}, bot=${auth.user})`);
-    } catch (err) {
-      console.warn(`\n[DRY RUN] Slack auth.test 실패(발송 시 문제 가능): ${err.data?.error || err.message}`);
-    }
-    return;
-  }
+  const fetched = await fetchDueIssues(today);
 
   // ── 멱등 가드: 오늘(KST) 이미 봇이 발송했으면 skip ──
-  if (!FORCE) {
+  if (!FORCE && !DRY_RUN) {
     try {
       const history = await slack.conversations.history({ channel: CHANNEL, limit: 30 });
       const dup = (history.messages || []).find((m) => {
@@ -410,6 +479,41 @@ async function main() {
       }
       console.error(`[bizops-due-alert] 멱등 가드 조회 실패(계속 진행): ${err.data?.error || err.message}`);
     }
+  }
+
+  // ── 🔁 카드사 회신 대기 자동 연장 (멱등 가드 통과 후에만 Linear 변경) ──
+  const applyExtend = !DRY_RUN && !NO_EXTEND;
+  const ext = await autoExtend(fetched, today, applyExtend);
+  if (ext.extended.length || ext.exhausted.size) {
+    console.log(
+      `[bizops-due-alert] 카드사 대기 자동 연장 ${ext.extended.length}건${applyExtend ? '' : '(계획만, 미적용)'} · 연장 소진 ${ext.exhausted.size}건`
+    );
+  }
+  const extendedIds = new Set(ext.extended.map((e) => e.issue.identifier));
+  const issues = fetched.filter((i) => !extendedIds.has(i.identifier));
+
+  const overdueCount = issues.filter((i) => i.dueDate < today).length;
+  const todayCount = issues.filter((i) => i.dueDate === today).length;
+  console.log(`[bizops-due-alert] 기한초과 ${overdueCount} · 오늘마감 ${todayCount} (총 ${issues.length}건)`);
+
+  const blocks = await buildBlocks(issues, today, ext);
+  const summaryText =
+    issues.length === 0 && ext.extended.length === 0
+      ? `✅ 오늘(${mmdd(today)}) 마감·기한 초과 미완료 없음`
+      : `⏰ BizOps 마감 — 기한초과 ${overdueCount} · 오늘 ${todayCount} (${mmdd(today)})` +
+        (ext.extended.length ? ` · 카드사 대기 자동연장 ${ext.extended.length}` : '');
+
+  if (DRY_RUN) {
+    console.log('\n[DRY RUN] Slack 미발송 — 메시지 미리보기:\n');
+    previewBlocks(blocks);
+    // 토큰 유효성만 확인(발송 안 함)
+    try {
+      const auth = await slack.auth.test();
+      console.log(`\n[DRY RUN] Slack 토큰 유효 (team=${auth.team}, bot=${auth.user})`);
+    } catch (err) {
+      console.warn(`\n[DRY RUN] Slack auth.test 실패(발송 시 문제 가능): ${err.data?.error || err.message}`);
+    }
+    return;
   }
 
   // ── 발송 ──
