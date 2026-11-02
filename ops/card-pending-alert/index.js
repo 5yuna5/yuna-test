@@ -526,14 +526,15 @@ async function main() {
 
   // 온보딩 퍼널별 고객 터치 알림 봇의 최신 메시지 찾기
   console.log(`\n채널 ${CHANNEL}에서 봇 메시지 검색 중...`);
-  const history = await slack.conversations.history({
-    channel: CHANNEL,
-    limit: 30,
-  });
-
-  const parentMsg = history.messages.find(
-    m => m.bot_id === PARENT_BOT_ID
-  );
+  // 최근 30건만 보면 붐비는 날 부모가 밀려난다(26-11-02) → 최근 4일을 페이지 넘기며 찾는다.
+  const oldest = String(Math.floor(Date.now() / 1000) - 4 * 86400);
+  let parentMsg = null;
+  let cursor;
+  do {
+    const res = await slack.conversations.history({ channel: CHANNEL, oldest, limit: 200, cursor });
+    parentMsg = (res.messages || []).find(m => m.bot_id === PARENT_BOT_ID);
+    cursor = res.response_metadata?.next_cursor;
+  } while (!parentMsg && cursor);
 
   if (!parentMsg) {
     console.error('온보딩 퍼널별 고객 터치 알림 봇 메시지를 찾을 수 없습니다.');

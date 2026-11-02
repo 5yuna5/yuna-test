@@ -1151,8 +1151,16 @@ function buildBlocks(depItems, issItems, resolvedCount, dwDate) {
 }
 
 async function findParent() {
-  const history = await slack.conversations.history({ channel: CHANNEL, limit: 30 });
-  const parentMsg = history.messages.find((m) => m.bot_id === PARENT_BOT_ID);
+  // 채널이 붐비면 최근 30건 안에서 부모가 밀려나 오후 폴백이 실패했다(26-11-02).
+  // 주말엔 금요일 부모에 붙으므로 최근 4일을 페이지 넘기며 찾는다.
+  const oldest = String(Math.floor(Date.now() / 1000) - 4 * 86400);
+  let parentMsg = null;
+  let cursor;
+  do {
+    const res = await slack.conversations.history({ channel: CHANNEL, oldest, limit: 200, cursor });
+    parentMsg = (res.messages || []).find((m) => m.bot_id === PARENT_BOT_ID);
+    cursor = res.response_metadata?.next_cursor;
+  } while (!parentMsg && cursor);
   if (!parentMsg) throw new Error('온보딩 퍼널별 고객 터치 알림 봇 메시지를 찾을 수 없습니다.');
   return parentMsg;
 }
